@@ -14,25 +14,29 @@ error GroupBill__NotAllowedToJoin(address sender);
 contract GroupBill is Ownable {
     enum GroupBillState {
         OPEN,
-        PARTIAL,
-        READY,
+        SIMPLIFICATION_REQUIRED,
+        READY_TO_SETTLE,
         SETTLED
     }
 
     enum JoinState {
-        UKNOWN, // default zero value is never used
+        UKNOWN,
         PENDING,
         JOINED
     }
 
+    mapping(address => Expenses.DestinationNode[]) private s_graph;
     GroupBillState private s_state;
+    IERC20 private i_coreToken; // participants can only donate in this token (gets set once)
     Expenses.Expense[] private s_expenses;
+    address[] private participants;
     mapping(address => JoinState) private s_isParticipant;
     mapping(address => bool) private s_hasVoted;
 
-    constructor(address initialOwner, address[] memory initialParticipants) Ownable(initialOwner) {
+    constructor(address initialOwner, address coreToken, address[] memory initialParticipants) Ownable(initialOwner) {
         s_state = GroupBillState.OPEN;
         s_expenses = new Expenses.Expense[](0);
+        i_coreToken = IERC20(coreToken);
         addParticipants(initialParticipants);
     }
 
@@ -52,7 +56,13 @@ contract GroupBill is Ownable {
             revert GroupBill__NotAllowedToJoin(msg.sender);
         }
         s_isParticipant[msg.sender] = JoinState.JOINED;
+        participants.push(msg.sender);
         joinState = s_isParticipant[msg.sender];
+    }
+
+    function triggerGraphCalculations() public {
+        Expenses.simplify(s_graph, s_expenses); // empty mapping and all expenses passed by reference
+        // calculations
     }
 
     function addExpense(Expenses.ExpenseBody memory newExpense)
@@ -61,11 +71,11 @@ contract GroupBill is Ownable {
         returns (Expenses.Expense memory addedExpense)
     {
         Expenses.Expense memory expense =
-            Expenses.Expense(msg.sender, newExpense.borrower, newExpense.amount, newExpense.token);
+            Expenses.Expense(msg.sender, newExpense.borrower, newExpense.amount);
         s_expenses.push(expense);
         addedExpense = s_expenses[s_expenses.length - 1];
 
-        // GRAPH COMPUTATION REQUIRED
+        s_state = GroupBillState.SIMPLIFICATION_REQUIRED;
     }
 
     function editExpense(uint256 expenseIndex, Expenses.ExpenseBody memory newExpense)
@@ -76,22 +86,19 @@ contract GroupBill is Ownable {
         s_expenses[expenseIndex] = Expenses.Expense({
             lender: msg.sender,
             borrower: newExpense.borrower,
-            amount: newExpense.amount,
-            token: newExpense.token
+            amount: newExpense.amount
         });
         updatedExpense = s_expenses[expenseIndex];
-
-        // GRAPH COMPUTATION REQUIRED 
+        s_state = GroupBillState.SIMPLIFICATION_REQUIRED;
     }
 
     function deleteExpense(uint256 expenseIndex) public isExpenseLender(expenseIndex) {
         delete s_expenses[expenseIndex];
-
-        // GRAPH COMPUTATION REQUIRED
+        s_state = GroupBillState.SIMPLIFICATION_REQUIRED;
     }
 
     function vote() public isParticipant returns (bool _hasVoted) {
-        // when this method is called, the user should allow the contract
+        // TODO: when this method is called, the user should allow the contract
         // to operate on N amount of funds on user's behalf (signing process) (*deadline*: for 5 min??)
         // SIGNING MUST TAKE PLACE!!!
         s_hasVoted[msg.sender] = true;
@@ -100,8 +107,8 @@ contract GroupBill is Ownable {
     }
 
     function recallVote() public isParticipant hasVoted returns (bool _hasVoted) {
-        // user recalls their signature
-        // Is it even possible to revoke the signature??
+        // TODO: user recalls their signature 
+        // ext. Is it even possible to revoke the signature??
         // If not, then friendly ux must be considered
         s_hasVoted[msg.sender] = false;
         _hasVoted = s_hasVoted[msg.sender];
@@ -139,4 +146,3 @@ contract GroupBill is Ownable {
         _;
     }
 }
-
