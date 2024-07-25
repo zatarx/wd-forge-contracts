@@ -20,3 +20,8 @@ docs/
 
 # forge 
 lib/*
+
+# python
+venv/*
+
+node_modules

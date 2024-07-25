@@ -1,0 +1,32 @@
+[
+    {
+        "borrower": "1",
+        "lender": "2",
+        "amount": 50
+    },
+    {
+        "borrower": "1",
+        "lender": "5",
+        "amount": 20
+    },
+    {
+        "borrower": "2",
+        "lender": "3",
+        "amount": 10
+    },
+    {
+        "borrower": "3",
+        "lender": "4",
+        "amount": 15
+    },
+    {
+        "borrower": "3",
+        "lender": "1",
+        "amount": 5
+    },
+    {
+        "borrower": "4",
+        "lender": "1",
+        "amount": 20
+    }
+]
