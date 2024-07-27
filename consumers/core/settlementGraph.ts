@@ -1,4 +1,9 @@
-type Expense = { borrower: string, lender: string, amount: bigint }
+interface Expense {
+    borrower: string;
+    lender: string;
+    amount: bigint;
+}
+
 
 function first(iterable) {
     for (var key in iterable) {
@@ -9,11 +14,12 @@ function first(iterable) {
 
 class SettlementGraph {
     private expenses: Expense[];
-    private borrowerLenderGraph: { [key: string]: { [key: string]: bigint } };
-    private lenderBorrowerGraph: { [key: string]: { [key: string]: bigint } };
+    private borrowerLenderGraph: { [key: string]: { [key: string]: bigint } } = {};
+    private lenderBorrowerGraph: { [key: string]: { [key: string]: bigint } } = {};
 
     constructor(expenses: Expense[]) {
         this.expenses = expenses;
+        this.buildGraph();
     }
 
     private buildGraph() {
@@ -35,14 +41,6 @@ class SettlementGraph {
 
             this.borrowerLenderGraph[expense.borrower][expense.lender] = expense.amount;
             this.lenderBorrowerGraph[expense.lender][expense.borrower] = expense.amount;
-
-            // if (this.borrowerLenderGraph[expense.lender] === undefined) {
-            //     this.borrowerLenderGraph[expense.lender] = {};
-            // }
-
-            // if (this.lenderBorrowerGraph[expense.borrower] === undefined) {
-            //     this.lenderBorrowerGraph[expense.borrower] = {};
-            // }
         }
     }
 
@@ -84,7 +82,7 @@ class SettlementGraph {
         if (costDiff >= 0n) {
             this.resetEdgeAmount(
                 borrower, lendersLender,
-                (this.borrowerLenderGraph[borrower][lendersLender] | 0n) + this.borrowerLenderGraph[lender][lendersLender]
+                (this.borrowerLenderGraph[borrower][lendersLender] || 0n) + this.borrowerLenderGraph[lender][lendersLender]
             );
 
             this.pruneBideractionalEdge(borrower, lendersLender);
@@ -93,11 +91,11 @@ class SettlementGraph {
         } else {
             this.resetEdgeAmount(
                 borrower, lendersLender,
-                (this.borrowerLenderGraph[borrower][lendersLender] | 0n) + this.borrowerLenderGraph[borrower][lender] 
+                (this.borrowerLenderGraph[borrower][lendersLender] || 0n) + this.borrowerLenderGraph[borrower][lender]
             );
             this.pruneBideractionalEdge(borrower, lendersLender);
             this.resetEdgeAmount(lender, lendersLender, -costDiff);
-            this.pruneEdge(lender, borrower);
+            this.pruneEdge(borrower, lender);
         }
     }
 
@@ -108,12 +106,23 @@ class SettlementGraph {
 
             for (var lender in this.borrowerLenderGraph) {
                 const borrower = first(this.lenderBorrowerGraph[lender]);
-                const lenders_lender = first(this.borrowerLenderGraph[lender]);
-                if (!borrower || !lenders_lender) {
-                    break;
+                const lendersLender = first(this.borrowerLenderGraph[lender]);
+                if (!borrower || !lendersLender) {
+                    continue;
                 }
-                this.rearrangeTriplet(borrower, lender, lenders_lender);
+                this.rearrangeTriplet(borrower, lender, lendersLender);
+                graphPruned = true;
             }
         }
     }
 }
+
+import expenses from "../expenses.json";
+var newExpenses: Expense[] = [];
+for (var expense of expenses) {
+    newExpenses.push({...expense, amount: BigInt(expense["amount"])});
+}
+
+let graph = new SettlementGraph(newExpenses);
+graph.collapseGraph();
+console.log(expenses);
