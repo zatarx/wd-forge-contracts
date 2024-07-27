@@ -8,24 +8,29 @@ import {GroupBill} from "./GroupBill.sol";
 error GroupBill__ParticipantsNotEmpty();
 error GroupBill__TokenNotAllowed(IERC20 token);
 
-contract GroupBillFactory {
+contract GroupBillFactory is Ownable {
     error GroupBillFactory__AcceptedTokensNotEmpty();
 
     uint private i_acceptedTokensCount;
-    address[] private i_trustedEOAs;
-    mapping(uint => IERC20) private i_acceptedTokens;
+    address private immutable i_consumerEOA;
+    mapping(uint => IERC20) private ACCEPTED_TOKENS;
     mapping(address => GroupBill[]) public s_ownerGroupBills;
 
     event GroupBillCreation(address contractId);
 
-    constructor(IERC20[] memory acceptedTokens) {
+    constructor(
+        address initialOwner,
+        IERC20[] memory acceptedTokens,
+        address consumerEOA
+    ) Ownable(initialOwner) {
         // TODO: IERC20[] vs address[] memory acceptedTokens passed
+        i_consumerEOA = consumerEOA;
         if (acceptedTokens.length == 0) {
             revert GroupBillFactory__AcceptedTokensNotEmpty();
         }
 
         for (uint256 i = 0; i < acceptedTokens.length; i++) {
-            i_acceptedTokens[i] = acceptedTokens[i];
+            ACCEPTED_TOKENS[i] = acceptedTokens[i];
         }
     }
 
@@ -33,18 +38,18 @@ contract GroupBillFactory {
         uint tokenId,
         address[] memory initialParticipants
     ) public returns (GroupBill groupBill) {
-        IERC20 token = i_acceptedTokens[tokenId];
-        if (address(i_acceptedTokens[tokenId]) == address(0)) {
+        IERC20 token = ACCEPTED_TOKENS[tokenId];
+        if (address(ACCEPTED_TOKENS[tokenId]) == address(0)) {
             revert GroupBill__TokenNotAllowed(token);
         }
         groupBill = new GroupBill(
             msg.sender,
             token,
             initialParticipants,
-            i_trustedEOAs
+            i_consumerEOA
         );
         s_ownerGroupBills[msg.sender].push(groupBill);
-        emit GroupBillFactory__GroupBillCreation(address(groupBill));
+        emit GroupBillCreation(address(groupBill));
     }
 
     function getOwnerGroupBills(
@@ -56,7 +61,7 @@ contract GroupBillFactory {
     function getAcceptedTokens() public view returns (IERC20[] memory) {
         IERC20[] memory tokens = new IERC20[](i_acceptedTokensCount);
         for (uint i = 0; i < i_acceptedTokensCount; i++) {
-            tokens[i] = i_acceptedTokens[i];
+            tokens[i] = ACCEPTED_TOKENS[i];
         }
         return tokens;
     }

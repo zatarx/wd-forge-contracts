@@ -39,8 +39,8 @@ contract GroupBill is Ownable {
 
     GroupBillState private s_state;
     bytes32 private s_expensesHash;
-    IERC20 private i_coreToken; // participants can only donate in this token (gets set once)
-    address[] private i_trustedEOAs;
+    IERC20 private immutable i_coreToken; // participants can only donate in this token (gets set once)
+    address private immutable i_consumerEOA;
     uint private s_expensesCount;
     mapping(uint => Expense) private s_expenses;
     uint private s_prunedExpensesLength;
@@ -61,12 +61,12 @@ contract GroupBill is Ownable {
         address initialOwner,
         IERC20 coreToken,
         address[] memory initialParticipants,
-        address[] memory trustedEOAs
+        address consumerEOA
     ) Ownable(initialOwner) {
         s_state = GroupBillState.OPEN;
         s_expensesCount = 0;
         i_coreToken = IERC20(coreToken);
-        i_trustedEOAs = trustedEOAs;
+        i_consumerEOA = consumerEOA;
         addParticipants(initialParticipants);
     }
 
@@ -127,7 +127,7 @@ contract GroupBill is Ownable {
 
     function submitExpensesAfterPruning(
         Expense[] memory prunedExpenses
-    ) public onlyTrustedEOAs {
+    ) public onlyConsumerEOA {
         for (uint i = 0; i < prunedExpenses.length; i++) {
             s_prunedExpenses[i] = prunedExpenses[i];
         }
@@ -212,14 +212,16 @@ contract GroupBill is Ownable {
         _;
     }
 
-    modifier onlyTrustedEOAs() {
-        bool trusted = false;
-        for (uint i = 0; i < i_trustedEOAs.length; i++) {
-            if (i_trustedEOAs[i] == msg.sender) {
-                _;
-                return;
-            }
+    modifier onlyConsumerEOA() {
+        if (msg.sender != i_consumerEOA) {
+            revert GroupBill__AddressIsNotTrusted(msg.sender);
         }
-        revert GroupBill__AddressIsNotTrusted(msg.sender);
+        _;
+        // for (uint i = 0; i < i_trustedEOAs.length; i++) {
+        //     if (i_trustedEOAs[i] == msg.sender) {
+        //         _;
+        //         return;
+        //     }
+        // }
     }
 }
