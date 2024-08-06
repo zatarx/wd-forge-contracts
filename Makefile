@@ -33,11 +33,17 @@ format :; forge fmt
 
 anvil :; anvil -m 'test test test test test test test test test test test junk' --steps-tracing --block-time 1
 
-NETWORK_ARGS := --rpc-url http://localhost:8545 --private-key $(DEFAULT_ANVIL_KEY) --constructor-args 
+NETWORK_ARGS := --rpc-url http://localhost:8545 --private-key $(DEFAULT_ANVIL_KEY) --constructor-args 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 
 
 ifeq ($(findstring --network sepolia,$(ARGS)),--network sepolia)
-	NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL) --private-key $(PRIVATE_KEY) --broadcast --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+	NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL) --private-key $(SEPOLIA_PRIVATE_KEY) --broadcast --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
 endif
 
 deploy:
-	@forge create src/GroupBillFactory.sol:GroupBillFactory $(NETWORK_ARGS)
+	@forge script scripts/GroupBillFactory.s.sol:DeployGroupBillFactory --fork-url http://localhost:8545 --broadcast -vvvv
+
+cast_call:
+	@cast call 0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9 "createNewGroupBill(uint,address[])(GroupBill)" 0 "[0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266]" --trace --rpc-url http://localhost:8545
+
+cast_another_call:
+	@cast call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 "createNewGroupBill(uint,address[])(GroupBill)" 0 "[0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266]"

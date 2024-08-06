@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
-
+import "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -67,18 +67,22 @@ contract GroupBill is Ownable {
         s_expensesCount = 0;
         i_coreToken = IERC20(coreToken);
         i_consumerEOA = consumerEOA;
-        addParticipants(initialParticipants);
+        assignParticipants(initialParticipants);
     }
 
-    function addParticipants(address[] memory participants) public onlyOwner {
+    function assignParticipants(address[] memory participants) private {
         if (participants.length == 0) {
             revert GroupBill__ParticipantsEmpty();
         }
         for (uint256 i = 0; i < participants.length; i++) {
-            if (s_isParticipant[s_participants[i]] != JoinState.JOINED) {
-                s_isParticipant[s_participants[i]] = JoinState.PENDING;
+            if (s_isParticipant[participants[i]] != JoinState.JOINED) {
+                s_isParticipant[participants[i]] = JoinState.PENDING;
             }
         }
+    }
+
+    function addParticipants(address[] memory participants) public onlyOwner {
+        assignParticipants(participants);
     }
 
     function join() public returns (JoinState joinState) {
@@ -156,7 +160,7 @@ contract GroupBill is Ownable {
         }
     }
 
-    function vote() public isParticipant returns (bool _hasVoted) {
+    function signOff() public isParticipant returns (bool _hasVoted) {
         // TODO: when this method is called, the user should allow the contract
         // to operate on N amount of funds on user's behalf (signing process) (*deadline*: for 5 min??)
         // SIGNING MUST TAKE PLACE!!!
@@ -184,11 +188,23 @@ contract GroupBill is Ownable {
         isParticipant
         returns (address settlementTransaction)
     {
-        // all participants have voted -> initiate share destribution
+        // all participants have signed off (voted) -> initiate share destribution
     }
 
     function getState() public view returns (GroupBillState) {
         return s_state;
+    }
+
+    function getCoreToken() public view returns (address) {
+        return address(i_coreToken);
+    }
+
+    function getConsumerEOA() public view returns (address) {
+        return i_consumerEOA;
+    }
+
+    function getParticipantState() public view returns (JoinState) {
+        return s_isParticipant[msg.sender];
     }
 
     modifier isParticipant() {

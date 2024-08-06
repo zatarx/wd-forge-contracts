@@ -11,7 +11,7 @@ error GroupBill__TokenNotAllowed(IERC20 token);
 contract GroupBillFactory is Ownable {
     error GroupBillFactory__AcceptedTokensNotEmpty();
 
-    uint private i_acceptedTokensCount;
+    uint public i_acceptedTokensCount;
     address private immutable i_consumerEOA;
     mapping(uint => IERC20) private ACCEPTED_TOKENS;
     mapping(address => GroupBill[]) public s_ownerGroupBills;
@@ -20,18 +20,9 @@ contract GroupBillFactory is Ownable {
 
     constructor(
         address initialOwner,
-        IERC20[] memory acceptedTokens,
         address consumerEOA
     ) Ownable(initialOwner) {
-        // TODO: IERC20[] vs address[] memory acceptedTokens passed
         i_consumerEOA = consumerEOA;
-        if (acceptedTokens.length == 0) {
-            revert GroupBillFactory__AcceptedTokensNotEmpty();
-        }
-
-        for (uint256 i = 0; i < acceptedTokens.length; i++) {
-            ACCEPTED_TOKENS[i] = acceptedTokens[i];
-        }
     }
 
     function createNewGroupBill(
@@ -52,16 +43,27 @@ contract GroupBillFactory is Ownable {
         emit GroupBillCreation(address(groupBill));
     }
 
+    function setAcceptedTokens(address[] memory acceptedTokens) public onlyOwner {
+        // TODO: deploy to sepolia and test out storing erc20 tokens vs address []
+        if (acceptedTokens.length == 0) {
+            revert GroupBillFactory__AcceptedTokensNotEmpty();
+        }
+        for (uint256 i = 0; i < acceptedTokens.length; i++) {
+            ACCEPTED_TOKENS[i] = IERC20(acceptedTokens[i]);
+        }
+        i_acceptedTokensCount = acceptedTokens.length; 
+    }
+
     function getOwnerGroupBills(
         address owner
     ) public view returns (GroupBill[] memory) {
         return s_ownerGroupBills[owner];
     }
 
-    function getAcceptedTokens() public view returns (IERC20[] memory) {
-        IERC20[] memory tokens = new IERC20[](i_acceptedTokensCount);
+    function getAcceptedTokens() public view returns (address[] memory) {
+        address[] memory tokens = new address[](i_acceptedTokensCount);
         for (uint i = 0; i < i_acceptedTokensCount; i++) {
-            tokens[i] = ACCEPTED_TOKENS[i];
+            tokens[i] = address(ACCEPTED_TOKENS[i]);
         }
         return tokens;
     }
