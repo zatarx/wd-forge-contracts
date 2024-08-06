@@ -119,9 +119,32 @@ contract GroupBillFactoryTest is Test {
                 groupBill.getParticipantState() == GroupBill.JoinState.PENDING
             );
         }
+
+        GroupBill[] memory factoryTestOwnerBills = factory.getOwnerGroupBills(testOwnerAddress);
+        assert(factoryTestOwnerBills.length == 1);
+        assert(address(factoryTestOwnerBills[0]) == address(groupBill));
     }
 
-    // function testFail_CreateGroupBillIfTokenNotListed() public {}
+    function testFail_CreateGroupBillIfTokenNotFound() public {
+        uint tokenAmount = 4;
+        address testOwnerAddress = vm.addr(vm.envUint("TEST_ETH_PRIVATE_KEY"));
 
-    // function testFail_CreateGroupBillIfParticipantsEmpty() public {}
+        (GroupBillFactory factory, ) = deployGroupBillFactory(tokenAmount);
+        address[] memory initialParticipants = new address[](1);
+        initialParticipants[0] = testOwnerAddress;
+
+        vm.prank(testOwnerAddress);
+        factory.createNewGroupBill(10, initialParticipants);
+    }
+
+    function testFail_CreateGroupBillIfParticipantsEmpty() public {
+        uint tokenAmount = 4;
+        address testOwnerAddress = vm.addr(vm.envUint("TEST_ETH_PRIVATE_KEY"));
+
+        (GroupBillFactory factory, ) = deployGroupBillFactory(tokenAmount);
+        address[] memory initialParticipants = new address[](0);
+
+        vm.prank(testOwnerAddress);
+        factory.createNewGroupBill(3, initialParticipants);
+    }
 }

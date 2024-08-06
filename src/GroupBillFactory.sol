@@ -6,7 +6,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {GroupBill} from "./GroupBill.sol";
 
 error GroupBill__ParticipantsNotEmpty();
-error GroupBill__TokenNotAllowed(IERC20 token);
+error GroupBill__TokenNotFound(uint tokenId);
 
 contract GroupBillFactory is Ownable {
     error GroupBillFactory__AcceptedTokensNotEmpty();
@@ -31,7 +31,7 @@ contract GroupBillFactory is Ownable {
     ) public returns (GroupBill groupBill) {
         IERC20 token = ACCEPTED_TOKENS[tokenId];
         if (address(ACCEPTED_TOKENS[tokenId]) == address(0)) {
-            revert GroupBill__TokenNotAllowed(token);
+            revert GroupBill__TokenNotFound(tokenId);
         }
         groupBill = new GroupBill(
             msg.sender,
