@@ -25,3 +25,5 @@ lib/*
 venv/*
 
 node_modules
+
+todolist.md

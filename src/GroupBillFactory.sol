@@ -5,18 +5,17 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {GroupBill} from "./GroupBill.sol";
 
-error GroupBill__ParticipantsNotEmpty();
-error GroupBill__TokenNotFound(uint tokenId);
+error GroupBillFactory__TokenNotFound(uint tokenId);
+error GroupBillFactory__AcceptedTokensNotEmpty();
 
 contract GroupBillFactory is Ownable {
-    error GroupBillFactory__AcceptedTokensNotEmpty();
-
-    uint public i_acceptedTokensCount;
-    address private immutable i_consumerEOA;
-    mapping(uint => IERC20) private ACCEPTED_TOKENS;
     mapping(address => GroupBill[]) public s_ownerGroupBills;
 
-    event GroupBillCreation(address contractId);
+    uint private s_acceptedTokensCount;
+    address private immutable i_consumerEOA;
+    mapping(uint => IERC20) private s_acceptedTokens;
+    
+    event GroupBillCreation(address indexed contractId);
 
     constructor(
         address initialOwner,
@@ -29,9 +28,9 @@ contract GroupBillFactory is Ownable {
         uint tokenId,
         address[] memory initialParticipants
     ) public returns (GroupBill groupBill) {
-        IERC20 token = ACCEPTED_TOKENS[tokenId];
-        if (address(ACCEPTED_TOKENS[tokenId]) == address(0)) {
-            revert GroupBill__TokenNotFound(tokenId);
+        IERC20 token = s_acceptedTokens[tokenId];
+        if (address(s_acceptedTokens[tokenId]) == address(0)) {
+            revert GroupBillFactory__TokenNotFound(tokenId);
         }
         groupBill = new GroupBill(
             msg.sender,
@@ -49,9 +48,9 @@ contract GroupBillFactory is Ownable {
             revert GroupBillFactory__AcceptedTokensNotEmpty();
         }
         for (uint256 i = 0; i < acceptedTokens.length; i++) {
-            ACCEPTED_TOKENS[i] = IERC20(acceptedTokens[i]);
+            s_acceptedTokens[i] = IERC20(acceptedTokens[i]);
         }
-        i_acceptedTokensCount = acceptedTokens.length; 
+        s_acceptedTokensCount = acceptedTokens.length; 
     }
 
     function getOwnerGroupBills(
@@ -61,9 +60,9 @@ contract GroupBillFactory is Ownable {
     }
 
     function getAcceptedTokens() public view returns (address[] memory) {
-        address[] memory tokens = new address[](i_acceptedTokensCount);
-        for (uint i = 0; i < i_acceptedTokensCount; i++) {
-            tokens[i] = address(ACCEPTED_TOKENS[i]);
+        address[] memory tokens = new address[](s_acceptedTokensCount);
+        for (uint i = 0; i < s_acceptedTokensCount; i++) {
+            tokens[i] = address(s_acceptedTokens[i]);
         }
         return tokens;
     }

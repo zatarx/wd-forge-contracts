@@ -60,13 +60,16 @@ contract GroupBillFactoryTest is Test {
         return (factory, mockTokens);
     }
 
-    function test_testWithTokens() public {
+    function test_DeployGBFactoryWithTokens() public {
         uint tokenAmount = 3;
         (
             GroupBillFactory factory,
             ERC20[] memory mockTokens
         ) = deployGroupBillFactory(tokenAmount);
         address[] memory factoryTokens = factory.getAcceptedTokens();
+
+        console.log("Mock tokens length %d", mockTokens.length);
+        console.log("factory tokens length %d", factoryTokens.length);
 
         assert(factoryTokens.length == tokenAmount);
         for (uint i = 0; i < mockTokens.length; i++) {
@@ -101,7 +104,7 @@ contract GroupBillFactoryTest is Test {
         address testOwnerAddress = vm.addr(vm.envUint("TEST_ETH_PRIVATE_KEY"));
 
         (GroupBillFactory factory, ) = deployGroupBillFactory(tokenAmount);
-        address[] memory initialParticipants = new address[](2); // array fuckery ahead, address[2] memory != address[] memory
+        address[] memory initialParticipants = new address[](2); // array fuckery ahead!! address[2] memory != address[] memory
         initialParticipants[0] = testOwnerAddress;
         initialParticipants[1] = vm.addr(1);
 
@@ -115,12 +118,22 @@ contract GroupBillFactoryTest is Test {
 
         for (uint i = 0; i < initialParticipants.length; i++) {
             vm.prank(initialParticipants[i]);
-            assert(
-                groupBill.getParticipantState() == GroupBill.JoinState.PENDING
-            );
+            if (testOwnerAddress == initialParticipants[i]) {
+                assert(
+                    groupBill.getParticipantState() ==
+                        GroupBill.JoinState.JOINED
+                );
+            } else {
+                assert(
+                    groupBill.getParticipantState() ==
+                        GroupBill.JoinState.PENDING
+                );
+            }
         }
 
-        GroupBill[] memory factoryTestOwnerBills = factory.getOwnerGroupBills(testOwnerAddress);
+        GroupBill[] memory factoryTestOwnerBills = factory.getOwnerGroupBills(
+            testOwnerAddress
+        );
         assert(factoryTestOwnerBills.length == 1);
         assert(address(factoryTestOwnerBills[0]) == address(groupBill));
     }
