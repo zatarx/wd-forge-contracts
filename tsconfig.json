@@ -1,0 +1,14 @@
+// tsconfig.json
+{
+  "compilerOptions": {
+    // ... other options
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "lib": [
+      "es2020",
+      "dom"
+    ],
+    "module": "commonjs",
+    "target": "es2020",
+}
+}
