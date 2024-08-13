@@ -17,15 +17,10 @@ struct Expense {
     uint256 amount;
 }
 
-struct ExpenseBody {
-    address borrower;
-    uint256 amount;
-}
-
 contract GroupBill is Ownable {
     enum GroupBillState {
         OPEN,
-        // PRUNING_REQUIRED,
+        PRUNING_IN_PROGRESS,
         READY_TO_SETTLE,
         SETTLEMENT_IN_PROGRESS,
         SETTLED
@@ -49,13 +44,15 @@ contract GroupBill is Ownable {
     mapping(address => JoinState) private s_isParticipant;
     mapping(address => bool) private s_hasVoted;
 
-    event ExpensePruningRequested(Expense[] expenses);
-    event ExpensePruningSubmitted(Expense[] expenses);
+    event ExpensePruningRequested(bytes32 indexed expensesHash);
+    event ExpensePruningResultSubmitted(bytes32 indexed expensesHash);
+    event ExpenseSettlementCompleted();
 
     error GroupBill__DifferentGroupBillStateExpected(
         GroupBillState currentState,
         GroupBillState[] expectedStates
     );
+    error GroupBill__StaleRequestHash(bytes32 expenseHash);
 
     constructor(
         address initialOwner,
@@ -67,6 +64,8 @@ contract GroupBill is Ownable {
         s_expensesCount = 0;
         i_coreToken = IERC20(coreToken);
         i_consumerEOA = consumerEOA;
+        s_isParticipant[initialOwner] = JoinState.JOINED;
+
         assignParticipants(initialParticipants);
     }
 
@@ -81,7 +80,9 @@ contract GroupBill is Ownable {
         }
     }
 
-    function addParticipants(address[] memory participants) public onlyOwner {
+    function addParticipants(
+        address[] memory participants
+    ) public isParticipant {
         assignParticipants(participants);
     }
 
@@ -95,13 +96,13 @@ contract GroupBill is Ownable {
     }
 
     function addExpense(
-        ExpenseBody memory newExpense
+        address borrower,
+        uint256 amount
     ) public isParticipant returns (Expense memory addedExpense) {
-        Expense memory expense = Expense(
-            msg.sender,
-            newExpense.borrower,
-            newExpense.amount
-        );
+        if (s_isParticipant[borrower] == JoinState.JOINED) {
+            revert GroupBill__NotParticipant(borrower);
+        }
+        Expense memory expense = Expense(msg.sender, borrower, amount);
         s_expenses[s_expensesCount] = expense;
         s_expensesCount++;
         addedExpense = expense;
@@ -109,7 +110,8 @@ contract GroupBill is Ownable {
 
     function editExpense(
         uint256 expenseIndex,
-        ExpenseBody memory newExpense
+        address borrower,
+        uint256 amount
     )
         public
         isExpenseLender(expenseIndex)
@@ -117,8 +119,8 @@ contract GroupBill is Ownable {
     {
         s_expenses[expenseIndex] = Expense({
             lender: msg.sender,
-            borrower: newExpense.borrower,
-            amount: newExpense.amount
+            borrower: borrower,
+            amount: amount
         });
         updatedExpense = s_expenses[expenseIndex];
     }
@@ -130,13 +132,31 @@ contract GroupBill is Ownable {
     }
 
     function submitExpensesAfterPruning(
-        Expense[] memory prunedExpenses
+        Expense[] memory prunedExpenses,
+        bytes32 initialExpensesHash
     ) public onlyConsumerEOA {
         for (uint i = 0; i < prunedExpenses.length; i++) {
             s_prunedExpenses[i] = prunedExpenses[i];
         }
         s_prunedExpensesLength = prunedExpenses.length;
-        emit ExpensePruningSubmitted(prunedExpenses);
+        s_state = GroupBillState.READY_TO_SETTLE;
+        emit ExpensePruningResultSubmitted(initialExpensesHash);
+    }
+
+    function requestExpensePruning() public isParticipant {
+        bytes32 newExpensesHash = sha256(abi.encode(getAllExpenses()));
+
+        if (
+            s_expensesHash != newExpensesHash &&
+            (s_state == GroupBillState.OPEN ||
+                s_state == GroupBillState.READY_TO_SETTLE)
+        ) {
+            s_expensesHash = newExpensesHash;
+
+            emit ExpensePruningRequested(s_expensesHash);
+            // TODO: uncomment when finished testing
+            // s_state = GroupBillState.PRUNING_IN_PROGRESS;
+        }
     }
 
     function getAllExpenses() public view returns (Expense[] memory) {
@@ -146,18 +166,18 @@ contract GroupBill is Ownable {
         }
         return currentExpenses;
     }
-    
-    function requestExpensePruning() public isParticipant {
-        bytes32 newExpensesHash = sha256(abi.encode(getAllExpenses()));
 
-        if (
-            s_expensesHash != newExpensesHash &&
-            s_state == GroupBillState.READY_TO_SETTLE
-        ) {
-            s_expensesHash = newExpensesHash;
-            emit ExpensePruningRequested(getAllExpenses());
-            s_state = GroupBillState.SETTLEMENT_IN_PROGRESS;
+    function getAllExpenses(
+        bytes32 expensesHash
+    ) public view returns (Expense[] memory) {
+        if (expensesHash != s_expensesHash) {
+            revert GroupBill__StaleRequestHash(expensesHash);
         }
+        return getAllExpenses();
+    }
+
+    function getExpensesHash() public view returns (bytes32) {
+        return s_expensesHash;
     }
 
     function signOff() public isParticipant returns (bool _hasVoted) {
@@ -208,7 +228,7 @@ contract GroupBill is Ownable {
     }
 
     modifier isParticipant() {
-        if (s_isParticipant[msg.sender] == JoinState.JOINED) {
+        if (s_isParticipant[msg.sender] != JoinState.JOINED) {
             revert GroupBill__NotParticipant(msg.sender);
         }
         _;

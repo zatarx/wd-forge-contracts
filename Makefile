@@ -40,10 +40,13 @@ ifeq ($(findstring --network sepolia,$(ARGS)),--network sepolia)
 endif
 
 deploy:
-	@forge script scripts/GroupBillFactory.s.sol:DeployGroupBillFactory --fork-url http://localhost:8545 --broadcast -vvvv
+	@forge script script/GroupBillFactory.s.sol:DeployGroupBillFactory --rpc-url http://localhost:8545 --broadcast -vvvvv
+
+creategb:
+	@forge script script/GroupBillFactory.s.sol:CreateGBContract --rpc-url http://localhost:8545 --broadcast -vvvvv
 
 cast_call:
-	@cast call 0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9 "createNewGroupBill(uint,address[])(GroupBill)" 0 "[0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266]" --trace --rpc-url http://localhost:8545
+	@cast call 0xa91004C78f59Ef41472ac641F292F13cb1f9BDE5 "setAcceptedTokens(uint,address[])(GroupBill)" 0 "[0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266]" --trace --rpc-url http://localhost:8545
 
 cast_another_call:
-	@cast call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 "createNewGroupBill(uint,address[])(GroupBill)" 0 "[0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266]"
+	cast call 0xa91004C78f59Ef41472ac641F292F13cb1f9BDE5 "createNewGroupBill(uint,address[])(GroupBill)" 0 "[0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266]" --trace --rpc-url http://localhost:8545
