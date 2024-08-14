@@ -52,7 +52,10 @@ contract GroupBill is Ownable {
         GroupBillState currentState,
         GroupBillState[] expectedStates
     );
-    error GroupBill__StaleRequestHash(bytes32 expenseHash);
+    error GroupBill__ExpensesHashMismatch(
+        bytes32 currentExpensesHash,
+        bytes32 expenseHash
+    );
 
     constructor(
         address initialOwner,
@@ -133,14 +136,24 @@ contract GroupBill is Ownable {
 
     function submitExpensesAfterPruning(
         Expense[] memory prunedExpenses,
-        bytes32 initialExpensesHash
+        bytes32 expensesHash
     ) public onlyConsumerEOA {
+        if (s_expensesHash != expensesHash) {
+            revert GroupBill__ExpensesHashMismatch(s_expensesHash, expensesHash);
+        }
+        if (s_prunedExpensesLength != 0) {
+            for (uint i = 0; i < s_prunedExpensesLength; i++) {
+                delete s_prunedExpenses[i];
+            }
+            s_prunedExpensesLength = 0;
+        }
+
         for (uint i = 0; i < prunedExpenses.length; i++) {
             s_prunedExpenses[i] = prunedExpenses[i];
         }
         s_prunedExpensesLength = prunedExpenses.length;
         s_state = GroupBillState.READY_TO_SETTLE;
-        emit ExpensePruningResultSubmitted(initialExpensesHash);
+        emit ExpensePruningResultSubmitted(expensesHash);
     }
 
     function requestExpensePruning() public isParticipant {
@@ -171,7 +184,7 @@ contract GroupBill is Ownable {
         bytes32 expensesHash
     ) public view returns (Expense[] memory) {
         if (expensesHash != s_expensesHash) {
-            revert GroupBill__StaleRequestHash(expensesHash);
+            revert GroupBill__ExpensesHashMismatch(s_expensesHash, expensesHash);
         }
         return getAllExpenses();
     }
