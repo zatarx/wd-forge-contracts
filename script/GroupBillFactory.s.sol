@@ -95,6 +95,9 @@ contract CreateGBContract is Script {
         vm.startBroadcast(deployerPrivateKey);
 
         GroupBill groupBill = gbf.createNewGroupBill(0, initialParticipants);
+        groupBill.setName("Whistler trip");
+        console.log(groupBill.getName());
+
         address[] memory newPeeps = new address[](1);
         newPeeps[0] = participantAddress;
         groupBill.addParticipants(newPeeps);
