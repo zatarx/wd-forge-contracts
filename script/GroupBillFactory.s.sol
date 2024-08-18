@@ -85,7 +85,7 @@ contract CreateGBContract is Script {
         (address participantAddress, ) = deriveRememberKey(testMnemonic, 1);
 
         GroupBillFactory gbf = GroupBillFactory(
-            0x5FbDB2315678afecb367f032d93F642f64180aa3
+            vm.envAddress("GROUP_BILL_FACTORY_CONRACT_ID")
         );
         address deployerAddress = vm.envAddress("ETH_OWNER_ADDRESS");
         address[] memory initialParticipants = new address[](1);
