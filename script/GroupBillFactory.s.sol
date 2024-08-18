@@ -32,14 +32,14 @@ contract DeployGroupBillFactory is Script {
         address consumerEOA
     ) internal returns (address factoryAddress) {
         vm.startBroadcast(deployerPrivateKey);
-        bytes memory saltDonor = bytes("0xb8aa30d8f1d398883f0eeb5079777c42");
-        bytes32 salt; // TODO: start exporting salt from the env vars and create if statement if salt is provided,
+        // bytes memory saltDonor = bytes("0xb8aa30d8f1d398883f0eeb5079777c42");
+        // bytes32 salt; // TODO: start exporting salt from the env vars and create if statement if salt is provided,
         // then execute with the salt, else just do pure contract creation (salt contract exec is to have the same address in consumer_api)
-        assembly {
-            salt := mload(add(saltDonor, 32))
-        }
+        // assembly {
+        //     salt := mload(add(saltDonor, 32))
+        // }
 
-        GroupBillFactory gbf = new GroupBillFactory{salt: salt}(
+        GroupBillFactory gbf = new GroupBillFactory(
             deployerAddress,
             consumerEOA
         );
@@ -56,7 +56,6 @@ contract DeployGroupBillFactory is Script {
         vm.stopBroadcast();
     }
 }
-
 
 contract TestDeployGroupBillFactory is DeployGroupBillFactory {
     function run()
@@ -86,7 +85,7 @@ contract CreateGBContract is Script {
         (address participantAddress, ) = deriveRememberKey(testMnemonic, 1);
 
         GroupBillFactory gbf = GroupBillFactory(
-            0x3F4BC9ddb63a9DAb307d86ffa266334da459F40C
+            vm.envAddress("GROUP_BILL_FACTORY_CONRACT_ID")
         );
         address deployerAddress = vm.envAddress("ETH_OWNER_ADDRESS");
         address[] memory initialParticipants = new address[](1);
@@ -105,6 +104,7 @@ contract CreateGBContract is Script {
         vm.stopBroadcast();
 
         vm.startBroadcast(participantAddress);
+        // console.logUint(uint(groupBill.getParticipantState()));
         groupBill.join();
         groupBill.requestExpensePruning();
 
@@ -123,5 +123,34 @@ contract CreateGBContract is Script {
         // groupBill.requestExpensePruning();
 
         // console.logAddress(address(groupBill));
+    }
+}
+
+contract ExpensePruningRequestContract is Script {
+    function run() public {
+        string
+            memory testMnemonic = "test test test test test test test test test test test junk";
+
+        (address participantAddress, ) = deriveRememberKey(testMnemonic, 1);
+        GroupBill bill = GroupBill(0xa16E02E87b7454126E5E10d957A927A7F5B5d2be);
+
+        // groupBill.addParticipants(newPeeps);
+        // bytes32 expensesHash = groupBill.getExpensesHash();
+        uint256 deployerPrivateKey = vm.envUint("ETH_PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        bill.addExpense(participantAddress, 2000000);
+        vm.stopBroadcast();
+
+        vm.startBroadcast(participantAddress);
+        // groupBill.join();
+        bill.requestExpensePruning();
+
+        // console.log("GroupBill state:");
+        // console.logUint(uint(groupBill.getState()));
+        // console.logUint(uint(groupBill.getParticipantState()));
+        // console.logBool(
+        //     groupBill.getParticipantState() == GroupBill.JoinState.JOINED
+        // );
+        vm.stopBroadcast();
     }
 }

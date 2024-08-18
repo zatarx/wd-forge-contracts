@@ -102,7 +102,7 @@ contract GroupBill is Ownable {
         address borrower,
         uint256 amount
     ) public isParticipant returns (Expense memory addedExpense) {
-        if (s_isParticipant[borrower] == JoinState.JOINED) {
+        if (s_isParticipant[borrower] == JoinState.UKNOWN) {
             revert GroupBill__NotParticipant(borrower);
         }
         Expense memory expense = Expense(msg.sender, borrower, amount);
@@ -139,7 +139,10 @@ contract GroupBill is Ownable {
         bytes32 expensesHash
     ) public onlyConsumerEOA {
         if (s_expensesHash != expensesHash) {
-            revert GroupBill__ExpensesHashMismatch(s_expensesHash, expensesHash);
+            revert GroupBill__ExpensesHashMismatch(
+                s_expensesHash,
+                expensesHash
+            );
         }
         if (s_prunedExpensesLength != 0) {
             for (uint i = 0; i < s_prunedExpensesLength; i++) {
@@ -184,7 +187,10 @@ contract GroupBill is Ownable {
         bytes32 expensesHash
     ) public view returns (Expense[] memory) {
         if (expensesHash != s_expensesHash) {
-            revert GroupBill__ExpensesHashMismatch(s_expensesHash, expensesHash);
+            revert GroupBill__ExpensesHashMismatch(
+                s_expensesHash,
+                expensesHash
+            );
         }
         return getAllExpenses();
     }
