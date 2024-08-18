@@ -33,6 +33,7 @@ contract GroupBill is Ownable {
     }
 
     GroupBillState private s_state;
+    string private s_name;
     bytes32 private s_expensesHash;
     IERC20 private immutable i_coreToken; // participants can only donate in this token (gets set once)
     address private immutable i_consumerEOA;
@@ -197,6 +198,14 @@ contract GroupBill is Ownable {
 
     function getExpensesHash() public view returns (bytes32) {
         return s_expensesHash;
+    }
+
+    function getName() public view returns (string memory) {
+        return s_name;
+    }
+
+    function setName(string memory gbName) public isParticipant {
+        s_name = gbName;
     }
 
     function signOff() public isParticipant returns (bool _hasVoted) {
