@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 import "forge-std/Test.sol";
+import {SigUtils} from "./SigUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 error GroupBill__NotParticipant(address sender);
@@ -57,6 +61,7 @@ contract GroupBill is Ownable {
         bytes32 currentExpensesHash,
         bytes32 expenseHash
     );
+    error GroupBill__StateActionForbidden(GroupBillState state, address sender);
 
     constructor(
         address initialOwner,
@@ -69,6 +74,7 @@ contract GroupBill is Ownable {
         i_coreToken = IERC20(coreToken);
         i_consumerEOA = consumerEOA;
         s_isParticipant[initialOwner] = JoinState.JOINED;
+        permit2 = 
 
         assignParticipants(initialParticipants);
     }
@@ -162,18 +168,23 @@ contract GroupBill is Ownable {
 
     function requestExpensePruning() public isParticipant {
         bytes32 newExpensesHash = sha256(abi.encode(getAllExpenses()));
-
         if (
-            s_expensesHash != newExpensesHash &&
-            (s_state == GroupBillState.OPEN ||
+            !(s_state == GroupBillState.OPEN ||
                 s_state == GroupBillState.READY_TO_SETTLE)
         ) {
-            s_expensesHash = newExpensesHash;
-
-            emit ExpensePruningRequested(s_expensesHash);
-            // TODO: uncomment when finished testing
-            // s_state = GroupBillState.PRUNING_IN_PROGRESS;
+            revert GroupBill__StateActionForbidden(s_state, msg.sender);
         }
+        // } else if (s_expensesHash != newExpensesHash) {
+        //     revert GroupBill__ExpensesHashMismatch(
+        //         s_expensesHash,
+        //         newExpensesHash
+        //     );
+        // }
+
+        s_expensesHash = newExpensesHash;
+        emit ExpensePruningRequested(s_expensesHash);
+        // TODO: uncomment when finished testing
+        s_state = GroupBillState.PRUNING_IN_PROGRESS;
     }
 
     function getAllExpenses() public view returns (Expense[] memory) {
@@ -204,17 +215,78 @@ contract GroupBill is Ownable {
         return s_name;
     }
 
+    function getSenderTotalLoan() public view isParticipant returns (uint256) {
+        if (s_state != GroupBillState.READY_TO_SETTLE) {
+            revert GroupBill__StateActionForbidden(s_state, msg.sender);
+        }
+        uint256 totalAmount = 0;
+        for (uint i = 0; i < s_prunedExpensesLength; i++) {
+            // TODO: ? : might not work
+            // if (s_prunedExpenses[i].borrower == msg.sender) {
+            totalAmount += s_prunedExpenses[i].borrower == msg.sender
+                ? s_prunedExpenses[i].amount
+                : 0;
+            // }
+        }
+        return totalAmount;
+    }
+
+    function getTxFee(
+        IERC20 token,
+        uint256 amount
+    ) public pure returns (uint256) {
+        // chainlink calls??
+        // for now just mocking it to 1e18
+        return 1e17;
+    }
+
     function setName(string memory gbName) public isParticipant {
         s_name = gbName;
     }
 
-    function signOff() public isParticipant returns (bool _hasVoted) {
+    function permit(
+        SigUtils.Permit memory _permit,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public isParticipant {
         // TODO: when this method is called, the user should allow the contract
         // to operate on N amount of funds on user's behalf (signing process) (*deadline*: for 5 min??)
         // SIGNING MUST TAKE PLACE!!!
-        s_hasVoted[msg.sender] = true;
-        _hasVoted = s_hasVoted[msg.sender];
-        // produce an event
+        // s_hasVoted[msg.sender] = true;
+        // _hasVoted = s_hasVoted[msg.sender];
+        // hasVoted
+        uint borrowerLoan = getSenderTotalLoan();
+        uint txFee = getTxFee(i_coreToken, borrowerLoan);
+        ERC20Permit permitToken = ERC20Permit(address(i_coreToken));
+        console.log("contract permit and deadline");
+        console.logUint(_permit.deadline);
+        console.logUint(block.timestamp);
+
+        permitToken.permit(
+            _permit.owner,
+            address(this),
+            borrowerLoan + txFee,
+            _permit.deadline,
+            v,
+            r,
+            s
+        );
+
+        require(
+            permitToken.allowance(_permit.owner, address(this)) == 1e18 + 1e17,
+            "allowance not found"
+        );
+        require(permitToken.nonces(_permit.owner) == 1, "nonce is not 1"); // next nonce is 1, means that 0 is already taken
+        console.log("Onchain log: Group bill token balance before the transfer:");
+        console.logUint(permitToken.balanceOf(address(this)));
+        permitToken.transferFrom(
+            _permit.owner,
+            address(this),
+            borrowerLoan + txFee
+        );
+        console.log("Onchain log: New group bill token balance");
+        console.logUint(permitToken.balanceOf(address(this)));
     }
 
     function recallVote()

@@ -39,11 +39,20 @@ ifeq ($(findstring --network sepolia,$(ARGS)),--network sepolia)
 	NETWORK_ARGS := --rpc-url $(SEPOLIA_RPC_URL) --private-key $(SEPOLIA_PRIVATE_KEY) --broadcast --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
 endif
 
-deploy:
-	@forge script script/GroupBillFactory.s.sol:DeployGroupBillFactory --rpc-url http://localhost:8545 --broadcast -vvvvv
+# deploy:
+# 	@forge script script/GroupBillFactory.s.sol:DeployGroupBillFactory --rpc-url http://localhost:8545 --broadcast -vvvvv
+
+tdeploy:
+	@forge script script/GroupBillFactory.s.sol:TestDeployGroupBillFactory --rpc-url http://localhost:8545 --broadcast -vvvvv
+
+checkgb:
+	@forge script script/GroupBillFactory.s.sol:CheckGBScript --rpc-url http://localhost:8545 --broadcast -vvvvv
 
 creategb:
 	@forge script script/GroupBillFactory.s.sol:CreateGBContract --rpc-url http://localhost:8545 --broadcast -vvvvv
+
+prune:
+	@forge script script/GroupBillFactory.s.sol:ExpensePruningRequestContract --rpc-url http://localhost:8545 --broadcast -vvvvv
 
 cast_call:
 	@cast call 0xa91004C78f59Ef41472ac641F292F13cb1f9BDE5 "setAcceptedTokens(uint,address[])(GroupBill)" 0 "[0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266]" --trace --rpc-url http://localhost:8545

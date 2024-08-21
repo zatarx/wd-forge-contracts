@@ -3,8 +3,13 @@ pragma solidity ^0.8.23;
 
 import "forge-std/Script.sol";
 import "../src/GroupBillFactory.sol";
+import {SigUtils} from "../src/SigUtils.sol";
 import "../test/mocks/ERC20TokenMock.sol";
-import {GroupBill} from "../src/GroupBill.sol";
+import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {GroupBill, Expense} from "../src/GroupBill.sol";
+import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
+// import {Permit2} from "permit2/src/Permit2.sol";
 
 contract DeployGroupBillFactory is Script {
     function run()
@@ -77,47 +82,111 @@ contract TestDeployGroupBillFactory is DeployGroupBillFactory {
     }
 }
 
-contract CreateGBContract is Script {
-    function run() public {
+contract CreateGBContract is DeployGroupBillFactory {
+    function run()
+        public
+        override
+        returns (address factoryAddress, address[] memory tokens)
+    {
+        uint256 deployerPrivateKey = vm.envUint("TEST_ETH_PRIVATE_KEY");
+        address deployerAddress = vm.envAddress("TEST_ETH_OWNER_ADDRESS");
+        address consumerEOA = vm.envAddress("TEST_ETH_CONSUMER_EOA");
+
+        vm.prank(deployerAddress);
+        MockPermitToken token = new MockPermitToken("TEST_TOKEN", "TST");
+
+        tokens = new address[](1);
+        tokens[0] = address(token);
+
+        factoryAddress = super.deploy(
+            deployerPrivateKey,
+            deployerAddress,
+            tokens,
+            consumerEOA
+        );
+
         string
             memory testMnemonic = "test test test test test test test test test test test junk";
 
         (address participantAddress, ) = deriveRememberKey(testMnemonic, 1);
+        uint256 participantPrivateKey = vm.deriveKey(testMnemonic, 1);
 
-        GroupBillFactory gbf = GroupBillFactory(
-            vm.envAddress("GROUP_BILL_FACTORY_CONRACT_ID")
-        );
-        address deployerAddress = vm.envAddress("ETH_OWNER_ADDRESS");
+        GroupBillFactory gbf = GroupBillFactory(factoryAddress);
         address[] memory initialParticipants = new address[](1);
         initialParticipants[0] = deployerAddress;
-        uint256 deployerPrivateKey = vm.envUint("ETH_PRIVATE_KEY");
 
         vm.startBroadcast(deployerPrivateKey);
+        // send to participant some of the mock tokens
+        token.approve(participantAddress, 2e18);
+        token.transfer(participantAddress, 2e18);
+
+        console.log("Participant's token balance");
+        console.log(token.balanceOf(participantAddress));
 
         GroupBill groupBill = gbf.createNewGroupBill(0, initialParticipants);
         groupBill.setName("Whistler trip");
-        console.log(groupBill.getName());
+
 
         address[] memory newPeeps = new address[](1);
         newPeeps[0] = participantAddress;
         groupBill.addParticipants(newPeeps);
         // bytes32 expensesHash = groupBill.getExpensesHash();
 
-        groupBill.addExpense(participantAddress, 1000000);
+        groupBill.addExpense(participantAddress, 1e18);
+
         vm.stopBroadcast();
 
         vm.startBroadcast(participantAddress);
-        // console.logUint(uint(groupBill.getParticipantState()));
         groupBill.join();
         groupBill.requestExpensePruning();
-
-        // console.log("GroupBill state:");
-        // console.logUint(uint(groupBill.getState()));
-        // console.logUint(uint(groupBill.getParticipantState()));
-        // console.logBool(
-        //     groupBill.getParticipantState() == GroupBill.JoinState.JOINED
-        // );
         vm.stopBroadcast();
+
+        vm.startBroadcast(deployerAddress);
+        // submit submitExpensesAfterPruning
+        Expense[] memory expenses = new Expense[](1);
+        expenses[0] = Expense({
+            borrower: participantAddress,
+            lender: deployerAddress,
+            amount: 1e18
+        });
+        groupBill.submitExpensesAfterPruning(
+            expenses,
+            groupBill.getExpensesHash()
+        );
+
+        vm.stopBroadcast();
+
+        vm.startBroadcast(participantAddress);
+
+        uint256 totalParticipantLoan = groupBill.getSenderTotalLoan();
+        SigUtils.Permit memory permit = SigUtils.Permit({
+            owner: participantAddress,
+            spender: address(groupBill),
+            value: totalParticipantLoan +
+                groupBill.getTxFee(token, totalParticipantLoan),
+            nonce: token.nonces(participantAddress),
+            deadline: vm.getBlockTimestamp() + 5 days
+        });
+
+        SigUtils utils = new SigUtils();
+        bytes32 typedHash = utils.getTypedDataHash(
+            permit,
+            token.DOMAIN_SEPARATOR()
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
+            participantPrivateKey,
+            typedHash
+        );
+        console.log("permit deadline offchain (client side):");
+        console.logUint(permit.deadline);
+        groupBill.permit(permit, v, r, s);
+
+
+        vm.stopBroadcast();
+
+        // console.log(totalParticipantLoan);
+        // console.logAddress(factoryAddress);
+        // console.logAddress(address(groupBill));
 
         // vm.startBroadcast(deployerPrivateKey);
         // groupBill.requestExpensePruning();
@@ -126,6 +195,18 @@ contract CreateGBContract is Script {
         // groupBill.requestExpensePruning();
 
         // console.logAddress(address(groupBill));
+    }
+}
+
+contract CheckGBScript is Script {
+    function run() public {
+        string
+            memory testMnemonic = "test test test test test test test test test test test junk";
+
+        (address participantAddress, ) = deriveRememberKey(testMnemonic, 1);
+        GroupBill bill = GroupBill(0xa16E02E87b7454126E5E10d957A927A7F5B5d2be);
+
+        console.logUint(uint(bill.getState()));
     }
 }
 
