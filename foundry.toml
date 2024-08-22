@@ -4,6 +4,8 @@ script = "script"
 out = "out"
 solc = "0.8.23"
 libs = ["lib", "@openzeppelin/=lib/openzeppelin-contracts"]
+viaIr = true
+optimizer_runs = 500
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
