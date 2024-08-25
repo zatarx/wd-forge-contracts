@@ -179,7 +179,9 @@ contract CreateGBContract is DeployGroupBillFactory {
         vm.stopBroadcast();
 
         vm.startBroadcast(participantPrivateKey);
-        groupBill.approveTokenSpend(type(uint160).max);
+        // groupBill.approveTokenSpend(type(uint160).max);
+        // console.log("GroupBill address");
+        // console.logAddress(address(groupBill));
 
         uint256 totalParticipantLoan = groupBill.getSenderTotalLoan();
         IAllowanceTransfer.PermitDetails
@@ -200,6 +202,7 @@ contract CreateGBContract is DeployGroupBillFactory {
             });
 
         IPermit2 permit2 = groupBill.getPermit2();
+        token.approve(address(permit2), type(uint160).max);
         SigUtils utils = new SigUtils(permit2);
         bytes32 typedHash = utils.hashTypedData(singlePermit.hash());
 
@@ -222,7 +225,7 @@ contract CreateGBContract is DeployGroupBillFactory {
         // vm.broadcast(participantPrivateKey);
         vm.stopBroadcast();
 
-        vm.broadcast(participantAddress);
+        vm.startBroadcast(participantAddress);
         groupBill.permitEx(
             participantAddress,
             singlePermit,
@@ -230,7 +233,8 @@ contract CreateGBContract is DeployGroupBillFactory {
             permit2
         );
 
-        // vm.stopBroadcast();
+
+        vm.stopBroadcast();
 
         // console.log(totalParticipantLoan);
         // console.logAddress(factoryAddress);

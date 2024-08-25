@@ -249,10 +249,6 @@ contract GroupBill is Ownable {
         s_name = gbName;
     }
 
-    function approveTokenSpend(uint160 totalAmount) public isParticipant {
-        i_coreToken.approve(address(this), uint256(totalAmount)); // approving group till to spend a certain amount
-    }
-
     function permitEx(
         address owner,
         IAllowanceTransfer.PermitSingle memory singlePermit,
@@ -266,6 +262,11 @@ contract GroupBill is Ownable {
             revert GroupBill__InvalidToken(address(0));
 
         permit2.permit(msg.sender, singlePermit, signature);
+
+        console.log("Group Bill token balance");
+        console.logUint(i_coreToken.balanceOf(address(this)));
+        permit2.transferFrom(msg.sender, address(this), 1e17, address(i_coreToken));
+        console.logUint(i_coreToken.balanceOf(address(this)));
     }
 
     function recallVote()
