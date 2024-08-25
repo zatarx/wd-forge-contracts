@@ -10,6 +10,7 @@ import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20P
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IPermit2} from "./Utils.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
+import {SignatureVerification} from "permit2/src/libraries/SignatureVerification.sol";
 
 error GroupBill__NotParticipant(address sender);
 error GroupBill__NotExpenseOwner(address sender);
@@ -26,6 +27,7 @@ struct Expense {
 }
 
 contract GroupBill is Ownable {
+    using SignatureVerification for bytes;
     enum GroupBillState {
         OPEN,
         PRUNING_IN_PROGRESS,
@@ -248,91 +250,23 @@ contract GroupBill is Ownable {
     }
 
     function approveTokenSpend(uint160 totalAmount) public isParticipant {
-        i_coreToken.approve(address(i_permit2), uint256(totalAmount));
-        // i_permit2.approve(address(i_coreToken), address(i_permit2), totalAmount, block.timestamp + 1 days);
+        i_coreToken.approve(address(this), uint256(totalAmount)); // approving group till to spend a certain amount
     }
 
-    function permit2Ex(
+    function permitEx(
         address owner,
         IAllowanceTransfer.PermitSingle memory singlePermit,
-        bytes memory signature
+        bytes calldata signature,
+        IPermit2 permit2
     ) public isParticipant {
         if (address(singlePermit.details.token) != address(i_coreToken)) {
             revert GroupBill__InvalidToken(singlePermit.details.token);
         }
+        if (singlePermit.spender != address(this))
+            revert GroupBill__InvalidToken(address(0));
 
-        // owner - the user themselves (borrower)
-        // spender - address(this) aka current group bill (integrating contract)
-        // transferFrom should be triggered by this groupBill to corresponding s_prunedExpenses participants
-        // anyone can trigger local transfer method, but the address(this) will be calling permit2 which checks out
-
-        i_permit2.permit(owner, singlePermit, signature);
-        s_hasVoted[owner] = true;
-
-        // require(
-        //     permitToken.allowance(_permit.owner, address(this)) == 1e18 + 1e17,
-        //     "allowance not found"
-        // );
-        // require(permitToken.nonces(_permit.owner) == 1, "nonce is not 1"); // next nonce is 1, means that 0 is already taken
-        // console.log(
-        //     "Onchain log: Group bill token balance before the transfer:"
-        // );
-        // console.logUint(permitToken.balanceOf(address(this)));
-        // permitToken.transferFrom(
-        //     _permit.owner,
-        //     address(this),
-        //     borrowerLoan + txFee
-        // );
-        // console.log("Onchain log: New group bill token balance");
-        // console.logUint(permitToken.balanceOf(address(this)));
+        permit2.permit(msg.sender, singlePermit, signature);
     }
-
-    // function permit(
-    //     SigUtils.Permit memory _permit,
-    //     uint8 v,
-    //     bytes32 r,
-    //     bytes32 s
-    // ) public isParticipant {
-    //     // TODO: when this method is called, the user should allow the contract
-    //     // to operate on N amount of funds on user's behalf (signing process) (*deadline*: for 5 min??)
-    //     // SIGNING MUST TAKE PLACE!!!
-    //     // s_hasVoted[msg.sender] = true;
-    //     // _hasVoted = s_hasVoted[msg.sender];
-    //     // hasVoted
-    //     uint borrowerLoan = getSenderTotalLoan();
-    //     uint txFee = getTxFee(i_coreToken, borrowerLoan);
-    //     ERC20Permit permitToken = ERC20Permit(address(i_coreToken));
-    //     console.log("contract permit and deadline");
-    //     console.logUint(_permit.deadline);
-    //     console.logUint(block.timestamp);
-
-    //     permitToken.permit(
-    //         _permit.owner,
-    //         address(this),
-    //         borrowerLoan + txFee,
-    //         _permit.deadline,
-    //         v,
-    //         r,
-    //         s
-    //     );
-
-    //     require(
-    //         permitToken.allowance(_permit.owner, address(this)) == 1e18 + 1e17,
-    //         "allowance not found"
-    //     );
-    //     require(permitToken.nonces(_permit.owner) == 1, "nonce is not 1"); // next nonce is 1, means that 0 is already taken
-    //     console.log(
-    //         "Onchain log: Group bill token balance before the transfer:"
-    //     );
-    //     console.logUint(permitToken.balanceOf(address(this)));
-    //     permitToken.transferFrom(
-    //         _permit.owner,
-    //         address(this),
-    //         borrowerLoan + txFee
-    //     );
-    //     console.log("Onchain log: New group bill token balance");
-    //     console.logUint(permitToken.balanceOf(address(this)));
-    // }
 
     function recallVote()
         public
@@ -370,6 +304,10 @@ contract GroupBill is Ownable {
 
     function getParticipantState() public view returns (JoinState) {
         return s_isParticipant[msg.sender];
+    }
+
+    function getPermit2() public view returns (IPermit2 permit2) {
+        permit2 = i_permit2;
     }
 
     modifier isParticipant() {

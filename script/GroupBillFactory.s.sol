@@ -9,7 +9,6 @@ import "../test/mocks/ERC20TokenMock.sol";
 import {GroupBill, Expense} from "../src/GroupBill.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {PermitHash} from "permit2/src/libraries/PermitHash.sol";
 
@@ -42,25 +41,22 @@ contract DeployGroupBillFactory is Script {
         address permit2Address
     ) internal returns (address factoryAddress) {
         IPermit2 permit2;
-        if (permit2Address == address(0)) {
-            DeployPermit2 permit2Script = new DeployPermit2();
 
-            vm.broadcast(deployerPrivateKey);
-            permit2 = IPermit2(permit2Script.run());
+        if (permit2Address == address(0)) {
+            address deployed;
+            bytes memory bytecode = vm.getCode("Permit2.sol");
+
+            vm.broadcast(deployerAddress);
+            assembly {
+                deployed := create(0, add(bytecode, 0x20), mload(bytecode))
+            }
+            vm.etch(0x000000000022D473030F116dDEE9F6B43aC78BA3, deployed.code);
+
+            permit2 = IPermit2(deployed);
         } else {
             permit2 = IPermit2(vm.envAddress("ETH_PERMIT2_ADDRESS"));
         }
         vm.startBroadcast(deployerPrivateKey);
-        // bytes memory saltDonor = bytes("0xb8aa30d8f1d398883f0eeb5079777c42");
-        // bytes32 salt; // TODO: start exporting salt from the env vars and create if statement if salt is provided,
-        // then execute with the salt, else just do pure contract creation (salt contract exec is to have the same address in consumer_api)
-        // assembly {
-        //     salt := mload(add(saltDonor, 32))
-        // }
-        // if chainId == local ==> deploy permit2 contract
-        // if not, just use the address
-        // console.log("Chain Id:");
-        // console.logUint(vm.chainId());
 
         GroupBillFactory gbf = new GroupBillFactory(
             deployerAddress,
@@ -101,9 +97,9 @@ contract CreateGBContract is DeployGroupBillFactory {
     using PermitHash for IAllowanceTransfer.PermitSingle;
     mapping(address => uint) private s_nonces;
 
-    function nonces(address user) public returns (uint) {
+    function nonces(address user) public returns (uint nonce) {
+        nonce = s_nonces[user];
         s_nonces[user] += 1;
-        return s_nonces[user];
     }
 
     function run()
@@ -115,8 +111,8 @@ contract CreateGBContract is DeployGroupBillFactory {
         address deployerAddress = vm.envAddress("TEST_ETH_OWNER_ADDRESS");
         address consumerEOA = vm.envAddress("TEST_ETH_CONSUMER_EOA");
 
-        vm.prank(deployerAddress);
-        MockPermitToken token = new MockPermitToken("TEST_TOKEN", "TST");
+        vm.broadcast(deployerPrivateKey);
+        MockToken token = new MockToken("TEST_TOKEN", "TST");
 
         tokens = new address[](1);
         tokens[0] = address(token);
@@ -132,8 +128,11 @@ contract CreateGBContract is DeployGroupBillFactory {
         string
             memory testMnemonic = "test test test test test test test test test test test junk";
 
-        (address participantAddress, ) = deriveRememberKey(testMnemonic, 1);
         uint256 participantPrivateKey = vm.deriveKey(testMnemonic, 1);
+        address participantAddress = vm.rememberKey(participantPrivateKey);
+        console.log("Declaration of participant keys:");
+        console.logUint(participantPrivateKey);
+        console.logAddress(participantAddress);
 
         GroupBillFactory gbf = GroupBillFactory(factoryAddress);
         address[] memory initialParticipants = new address[](1);
@@ -179,7 +178,7 @@ contract CreateGBContract is DeployGroupBillFactory {
 
         vm.stopBroadcast();
 
-        vm.startBroadcast(participantAddress);
+        vm.startBroadcast(participantPrivateKey);
         groupBill.approveTokenSpend(type(uint160).max);
 
         uint256 totalParticipantLoan = groupBill.getSenderTotalLoan();
@@ -193,14 +192,16 @@ contract CreateGBContract is DeployGroupBillFactory {
                 expiration: uint48(vm.getBlockTimestamp() + 5 minutes),
                 nonce: uint48(this.nonces(participantAddress))
             });
-        IAllowanceTransfer.PermitSingle memory permit = IAllowanceTransfer
+        IAllowanceTransfer.PermitSingle memory singlePermit = IAllowanceTransfer
             .PermitSingle({
                 details: permitDetails,
                 spender: address(groupBill),
                 sigDeadline: uint256(permitDetails.expiration + 1 days)
             });
-        SigUtils utils = new SigUtils();
-        bytes32 typedHash = utils.hashTypedData(permit.hash());
+
+        IPermit2 permit2 = groupBill.getPermit2();
+        SigUtils utils = new SigUtils(permit2);
+        bytes32 typedHash = utils.hashTypedData(singlePermit.hash());
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(
             participantPrivateKey,
@@ -208,31 +209,28 @@ contract CreateGBContract is DeployGroupBillFactory {
         );
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        groupBill.permit2Ex(participantAddress, permit, signature);
+        (uint160 amount, uint48 expiration, uint48 nonce) = permit2.allowance(
+            participantAddress,
+            address(token),
+            address(groupBill)
+        );
+        console.log("script: nonces:");
+        // console.logAddress(participantAddress);
+        // permit2.permit(participantAddress, singlePermit, signature);
+        // vm.stopBroadcast();
 
-        // SigUtils.Permit memory permit = SigUtils.Permit({
-        //     owner: participantAddress,
-        //     spender: address(groupBill),
-        //     value: totalParticipantLoan +
-        //         groupBill.getTxFee(token, totalParticipantLoan),
-        //     nonce: token.nonces(participantAddress),
-        //     deadline: vm.getBlockTimestamp() + 5 days
-        // });
-
-        // SigUtils utils = new SigUtils();
-        // bytes32 typedHash = utils.getTypedDataHash(
-        //     permit,
-        //     token.DOMAIN_SEPARATOR()
-        // );
-        // (uint8 v, bytes32 r, bytes32 s) = vm.sign(
-        //     participantPrivateKey,
-        //     typedHash
-        // );
-        // console.log("permit deadline offchain (client side):");
-        // console.logUint(permit.deadline);
-        // groupBill.permit(permit, v, r, s);
-
+        // vm.broadcast(participantPrivateKey);
         vm.stopBroadcast();
+
+        vm.broadcast(participantAddress);
+        groupBill.permitEx(
+            participantAddress,
+            singlePermit,
+            signature,
+            permit2
+        );
+
+        // vm.stopBroadcast();
 
         // console.log(totalParticipantLoan);
         // console.logAddress(factoryAddress);

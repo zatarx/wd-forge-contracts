@@ -16,7 +16,7 @@ contract GroupBillFactory is Ownable {
     uint private s_acceptedTokensCount;
     address private immutable i_consumerEOA;
     mapping(uint => IERC20) private s_acceptedTokens;
-    
+
     event GroupBillCreation(address indexed contractId);
 
     constructor(
@@ -47,7 +47,9 @@ contract GroupBillFactory is Ownable {
         emit GroupBillCreation(address(groupBill));
     }
 
-    function setAcceptedTokens(address[] memory acceptedTokens) public onlyOwner {
+    function setAcceptedTokens(
+        address[] memory acceptedTokens
+    ) public onlyOwner {
         // TODO: deploy to sepolia and test out storing erc20 tokens vs address []
         if (acceptedTokens.length == 0) {
             revert GroupBillFactory__AcceptedTokensNotEmpty();
@@ -55,7 +57,7 @@ contract GroupBillFactory is Ownable {
         for (uint256 i = 0; i < acceptedTokens.length; i++) {
             s_acceptedTokens[i] = IERC20(acceptedTokens[i]);
         }
-        s_acceptedTokensCount = acceptedTokens.length; 
+        s_acceptedTokensCount = acceptedTokens.length;
     }
 
     function getOwnerGroupBills(

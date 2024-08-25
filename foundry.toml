@@ -2,10 +2,9 @@
 src = "src"
 script = "script"
 out = "out"
-solc = "0.8.23"
 libs = ["lib", "@openzeppelin/=lib/openzeppelin-contracts"]
-viaIr = true
-optimizer_runs = 500
+viaIR = true
+auto_detect_solc = true
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
