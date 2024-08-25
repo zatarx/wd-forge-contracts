@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IPermit2} from "./Utils.sol";
 import {GroupBill} from "./GroupBill.sol";
 
 error GroupBillFactory__TokenNotFound(uint tokenId);
@@ -11,17 +12,20 @@ error GroupBillFactory__AcceptedTokensNotEmpty();
 contract GroupBillFactory is Ownable {
     mapping(address => GroupBill[]) public s_ownerGroupBills;
 
+    IPermit2 private i_permit2;
     uint private s_acceptedTokensCount;
     address private immutable i_consumerEOA;
     mapping(uint => IERC20) private s_acceptedTokens;
-    
+
     event GroupBillCreation(address indexed contractId);
 
     constructor(
         address initialOwner,
-        address consumerEOA
+        address consumerEOA,
+        IPermit2 permit2
     ) Ownable(initialOwner) {
         i_consumerEOA = consumerEOA;
+        i_permit2 = permit2;
     }
 
     function createNewGroupBill(
@@ -36,13 +40,16 @@ contract GroupBillFactory is Ownable {
             msg.sender,
             token,
             initialParticipants,
-            i_consumerEOA
+            i_consumerEOA,
+            i_permit2
         );
         s_ownerGroupBills[msg.sender].push(groupBill);
         emit GroupBillCreation(address(groupBill));
     }
 
-    function setAcceptedTokens(address[] memory acceptedTokens) public onlyOwner {
+    function setAcceptedTokens(
+        address[] memory acceptedTokens
+    ) public onlyOwner {
         // TODO: deploy to sepolia and test out storing erc20 tokens vs address []
         if (acceptedTokens.length == 0) {
             revert GroupBillFactory__AcceptedTokensNotEmpty();
@@ -50,7 +57,7 @@ contract GroupBillFactory is Ownable {
         for (uint256 i = 0; i < acceptedTokens.length; i++) {
             s_acceptedTokens[i] = IERC20(acceptedTokens[i]);
         }
-        s_acceptedTokensCount = acceptedTokens.length; 
+        s_acceptedTokensCount = acceptedTokens.length;
     }
 
     function getOwnerGroupBills(
