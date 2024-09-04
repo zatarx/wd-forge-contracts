@@ -51,6 +51,7 @@ contract GroupBill is Ownable {
     address public immutable i_consumerEOA;
     
     GroupBillState private s_state;
+    IPermit2 private i_permit2;
     string private s_name;
 
     bytes32 private s_expensesHash;
@@ -366,6 +367,10 @@ contract GroupBill is Ownable {
             }
         }
         return currentExpenses;
+    }
+
+    function getPermit2() public view returns (IPermit2 permit2) {
+        permit2 = i_permit2;
     }
 
     modifier isParticipant() {
