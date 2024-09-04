@@ -10,7 +10,6 @@ import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20P
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IPermit2} from "./Utils.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
-import {SignatureVerification} from "permit2/src/libraries/SignatureVerification.sol";
 
 error GroupBill__NotParticipant(address sender);
 error GroupBill__NotExpenseOwner(address sender);
@@ -26,8 +25,13 @@ struct Expense {
     uint256 amount;
 }
 
+struct GroupExpense {
+    address[] borrowers;
+    uint256 amount;
+}
+
+
 contract GroupBill is Ownable {
-    using SignatureVerification for bytes;
     enum GroupBillState {
         OPEN,
         PRUNING_IN_PROGRESS,
@@ -42,16 +46,24 @@ contract GroupBill is Ownable {
         JOINED
     }
 
+    IPermit2 public immutable i_permit2;
+    IERC20 public immutable i_coreToken; // participants can only donate in this token (gets set once)
+    address public immutable i_consumerEOA;
+    
     GroupBillState private s_state;
     IPermit2 private i_permit2;
     string private s_name;
+
     bytes32 private s_expensesHash;
-    IERC20 private immutable i_coreToken; // participants can only donate in this token (gets set once)
-    address private immutable i_consumerEOA;
     uint private s_expensesCount;
     mapping(uint => Expense) private s_expenses;
+
+    mapping(address => mapping(string => GroupExpense)) private s_groupExpenses;
+    mapping(address => string[]) private s_groupExpenseNames;
+
     uint private s_prunedExpensesLength;
     mapping(uint => Expense) private s_prunedExpenses;
+
     address[] private s_participants;
     mapping(address => JoinState) private s_isParticipant;
     mapping(address => bool) private s_hasVoted;
@@ -81,27 +93,41 @@ contract GroupBill is Ownable {
         s_expensesCount = 0;
         i_coreToken = IERC20(coreToken);
         i_consumerEOA = consumerEOA;
-        s_isParticipant[initialOwner] = JoinState.JOINED;
+        addParticipant(initialOwner, JoinState.JOINED);
         i_permit2 = permit2;
 
-        assignParticipants(initialParticipants);
+        addPendingParticipants(initialParticipants);
+    }
+ 
+    function getState() public view returns (GroupBillState) {
+        return s_state;
     }
 
-    function assignParticipants(address[] memory participants) private {
-        if (participants.length == 0) {
-            revert GroupBill__ParticipantsEmpty();
-        }
-        for (uint256 i = 0; i < participants.length; i++) {
-            if (s_isParticipant[participants[i]] != JoinState.JOINED) {
-                s_isParticipant[participants[i]] = JoinState.PENDING;
-            }
-        }
+    function getCoreToken() public view returns (address) {
+        return address(i_coreToken);
+    }
+
+    function getConsumerEOA() public view returns (address) {
+        return i_consumerEOA;
+    }
+
+    function getParticipantState() public view returns (JoinState) {
+        return s_isParticipant[msg.sender];
+    }
+
+    function getPermit2() public view returns (IPermit2 permit2) {
+        permit2 = i_permit2;
+    }
+
+    function addParticipant(address participant, JoinState state) private {
+        s_isParticipant[participant] = state; 
+        s_participants.push(participant);
     }
 
     function addParticipants(
         address[] memory participants
     ) public isParticipant {
-        assignParticipants(participants);
+        addPendingParticipants(participants);
     }
 
     function join() public returns (JoinState joinState) {
@@ -109,44 +135,52 @@ contract GroupBill is Ownable {
             revert GroupBill__NotAllowedToJoin(msg.sender);
         }
         s_isParticipant[msg.sender] = JoinState.JOINED;
-        s_participants.push(msg.sender);
         joinState = s_isParticipant[msg.sender];
     }
 
-    function addExpense(
-        address borrower,
-        uint256 amount
-    ) public isParticipant returns (Expense memory addedExpense) {
-        if (s_isParticipant[borrower] == JoinState.UKNOWN) {
-            revert GroupBill__NotParticipant(borrower);
-        }
-        Expense memory expense = Expense(msg.sender, borrower, amount);
-        s_expenses[s_expensesCount] = expense;
-        s_expensesCount++;
-        addedExpense = expense;
-    }
-
-    function editExpense(
-        uint256 expenseIndex,
-        address borrower,
-        uint256 amount
-    )
-        public
-        isExpenseLender(expenseIndex)
-        returns (Expense memory updatedExpense)
-    {
-        s_expenses[expenseIndex] = Expense({
-            lender: msg.sender,
-            borrower: borrower,
-            amount: amount
+    function submitGroupExpenses(
+        address[] memory borrowers,
+        uint256 amount,
+        string memory expenseName
+    ) public isParticipant {
+        s_groupExpenses[msg.sender][expenseName] = GroupExpense({
+            amount: amount,
+            borrowers: borrowers
         });
-        updatedExpense = s_expenses[expenseIndex];
+
+        for (uint i = 0; i < s_groupExpenseNames[msg.sender].length; i++) {
+            bytes32 groupExpenseNameHash = keccak256(
+                abi.encode(s_groupExpenseNames[msg.sender][i])
+            );
+            bytes32 parameterGroupExpenseHash = keccak256(
+                abi.encode(expenseName)
+            );
+
+            if (groupExpenseNameHash == parameterGroupExpenseHash) {
+                return;
+            }
+        }
+        s_groupExpenseNames[msg.sender].push(expenseName);
     }
 
-    function deleteExpense(
-        uint256 expenseIndex
-    ) public isExpenseLender(expenseIndex) {
-        delete s_expenses[expenseIndex];
+    function deleteGroupExpense(
+        string memory expenseName
+    ) public isParticipant {
+        delete s_groupExpenses[msg.sender][expenseName];
+
+        for (uint i = 0; i < s_groupExpenseNames[msg.sender].length; i++) {
+            bytes32 groupExpenseNameHash = keccak256(
+                abi.encode(s_groupExpenseNames[msg.sender][i])
+            );
+            bytes32 parameterGroupExpenseHash = keccak256(
+                abi.encode(expenseName)
+            );
+
+            if (groupExpenseNameHash == parameterGroupExpenseHash) {
+                delete s_groupExpenseNames[msg.sender][i];
+                break;
+            }
+        }
     }
 
     function submitExpensesAfterPruning(
@@ -175,14 +209,14 @@ contract GroupBill is Ownable {
     }
 
     function requestExpensePruning() public isParticipant {
-        bytes32 newExpensesHash = sha256(abi.encode(getAllExpenses()));
+        bytes32 newExpensesHash = sha256(abi.encode(getFlatExpenses()));
         if (
             !(s_state == GroupBillState.OPEN ||
                 s_state == GroupBillState.READY_TO_SETTLE)
         ) {
             revert GroupBill__StateActionForbidden(s_state, msg.sender);
-        }
-        // } else if (s_expensesHash != newExpensesHash) {
+        } 
+        // else if (s_expensesHash != newExpensesHash) {
         //     revert GroupBill__ExpensesHashMismatch(
         //         s_expensesHash,
         //         newExpensesHash
@@ -195,15 +229,7 @@ contract GroupBill is Ownable {
         s_state = GroupBillState.PRUNING_IN_PROGRESS;
     }
 
-    function getAllExpenses() public view returns (Expense[] memory) {
-        Expense[] memory currentExpenses = new Expense[](s_expensesCount);
-        for (uint i = 0; i < s_expensesCount; i++) {
-            currentExpenses[i] = s_expenses[i];
-        }
-        return currentExpenses;
-    }
-
-    function getAllExpenses(
+    function getFlatExpenses(
         bytes32 expensesHash
     ) public view returns (Expense[] memory) {
         if (expensesHash != s_expensesHash) {
@@ -212,7 +238,7 @@ contract GroupBill is Ownable {
                 expensesHash
             );
         }
-        return getAllExpenses();
+        return getFlatExpenses();
     }
 
     function getExpensesHash() public view returns (bytes32) {
@@ -249,24 +275,30 @@ contract GroupBill is Ownable {
         s_name = gbName;
     }
 
-    function permitEx(
+    function permit(
         address owner,
         IAllowanceTransfer.PermitSingle memory singlePermit,
-        bytes calldata signature,
-        IPermit2 permit2
+        bytes calldata signature
     ) public isParticipant {
         if (address(singlePermit.details.token) != address(i_coreToken)) {
             revert GroupBill__InvalidToken(singlePermit.details.token);
         }
-        if (singlePermit.spender != address(this))
+        if (singlePermit.spender != address(this)) {
             revert GroupBill__InvalidToken(address(0));
+        }
 
-        permit2.permit(msg.sender, singlePermit, signature);
+        i_permit2.permit(msg.sender, singlePermit, signature);
 
         console.log("Group Bill token balance");
         console.logUint(i_coreToken.balanceOf(address(this)));
-        permit2.transferFrom(msg.sender, address(this), 1e17, address(i_coreToken));
-        console.logUint(i_coreToken.balanceOf(address(this)));
+
+        // i_permit2.transferFrom(
+        //     msg.sender,
+        //     address(this),
+        //     singlePermit.details.amount,
+        //     address(i_coreToken)
+        // );
+        // console.logUint(i_coreToken.balanceOf(address(this)));
     }
 
     function recallVote()
@@ -291,20 +323,50 @@ contract GroupBill is Ownable {
         // all participants have signed off (voted) -> initiate share destribution
     }
 
-    function getState() public view returns (GroupBillState) {
-        return s_state;
+
+    function addPendingParticipants(address[] memory participants) private {
+        if (participants.length == 0) {
+            revert GroupBill__ParticipantsEmpty();
+        }
+        for (uint256 i = 0; i < participants.length; i++) {
+            if (s_isParticipant[participants[i]] != JoinState.JOINED) {
+                addParticipant(participants[i], JoinState.PENDING);
+            }
+        }
     }
 
-    function getCoreToken() public view returns (address) {
-        return address(i_coreToken);
-    }
 
-    function getConsumerEOA() public view returns (address) {
-        return i_consumerEOA;
-    }
+    function getFlatExpenses() public view returns (Expense[] memory) {
+        uint256 flatExpensesLength = 0;
 
-    function getParticipantState() public view returns (JoinState) {
-        return s_isParticipant[msg.sender];
+        for (uint i = 0; i < s_participants.length; i++) {
+            address lender = s_participants[i];
+            for (uint j = 0; j < s_groupExpenseNames[lender].length; j++) {
+                string memory currentExpenseName = s_groupExpenseNames[lender][
+                    j
+                ];
+                flatExpensesLength += s_groupExpenses[lender][
+                    currentExpenseName
+                ].borrowers.length;
+            }
+        }
+
+        Expense[] memory currentExpenses = new Expense[](flatExpensesLength);
+        uint flatExpensesCount = 0;
+        for (uint i = 0; i < s_participants.length; i++) {
+            address lender = s_participants[i];
+
+            for (uint j = 0; j < s_groupExpenseNames[lender].length; j++) {
+                string memory currentExpenseName = s_groupExpenseNames[lender][j];
+                GroupExpense memory ge = s_groupExpenses[lender][currentExpenseName];
+
+                for (uint z = 0; z < ge.borrowers.length; z++) {
+                    currentExpenses[flatExpensesCount] = Expense({lender: lender, borrower: ge.borrowers[z], amount: ge.amount});
+                    flatExpensesCount++;
+                }
+            }
+        }
+        return currentExpenses;
     }
 
     function getPermit2() public view returns (IPermit2 permit2) {

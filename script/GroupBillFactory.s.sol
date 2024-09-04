@@ -6,6 +6,7 @@ import "../src/GroupBillFactory.sol";
 import {SigUtils} from "../src/SigUtils.sol";
 import {IPermit2} from "../src/Utils.sol";
 import "../test/mocks/ERC20TokenMock.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {GroupBill, Expense} from "../src/GroupBill.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
@@ -111,19 +112,19 @@ contract CreateGBContract is DeployGroupBillFactory {
         address deployerAddress = vm.envAddress("TEST_ETH_OWNER_ADDRESS");
         address consumerEOA = vm.envAddress("TEST_ETH_CONSUMER_EOA");
 
-        vm.broadcast(deployerPrivateKey);
-        MockToken token = new MockToken("TEST_TOKEN", "TST");
+        // vm.broadcast(deployerPrivateKey);
+        // MockToken token = new MockToken("TEST_TOKEN", "TST");
 
-        tokens = new address[](1);
-        tokens[0] = address(token);
+        // tokens = new address[](1);
+        // tokens[0] = address(token);
 
-        factoryAddress = super.deploy(
-            deployerPrivateKey,
-            deployerAddress,
-            tokens,
-            consumerEOA,
-            address(0)
-        );
+        // factoryAddress = super.deploy(
+        //     deployerPrivateKey,
+        //     deployerAddress,
+        //     tokens,
+        //     consumerEOA,
+        //     address(0)
+        // );
 
         string
             memory testMnemonic = "test test test test test test test test test test test junk";
@@ -134,11 +135,20 @@ contract CreateGBContract is DeployGroupBillFactory {
         console.logUint(participantPrivateKey);
         console.logAddress(participantAddress);
 
-        GroupBillFactory gbf = GroupBillFactory(factoryAddress);
+        GroupBillFactory gbf = GroupBillFactory(
+            vm.envAddress("GROUP_BILL_FACTORY_CONRACT_ID")
+        );
+
         address[] memory initialParticipants = new address[](1);
         initialParticipants[0] = deployerAddress;
 
         vm.startBroadcast(deployerPrivateKey);
+
+        MockToken token = new MockToken("TEST_TOKEN", "TST");
+        tokens = new address[](1);
+        tokens[0] = address(token);
+
+        gbf.setAcceptedTokens(tokens);
         // send to participant some of the mock tokens
         token.approve(participantAddress, 2e18);
         token.transfer(participantAddress, 2e18);
@@ -152,9 +162,12 @@ contract CreateGBContract is DeployGroupBillFactory {
         address[] memory newPeeps = new address[](1);
         newPeeps[0] = participantAddress;
         groupBill.addParticipants(newPeeps);
-        // bytes32 expensesHash = groupBill.getExpensesHash();
 
-        groupBill.addExpense(participantAddress, 1e18);
+        // bytes32 expensesHash = groupBill.getExpensesHash();
+        groupBill.submitGroupExpenses(newPeeps, 1e18, "Booze");
+        Expense[] memory expenses = groupBill.getFlatExpenses();
+        console.log("Expenses length from script");
+        console.logUint(expenses.length);
 
         vm.stopBroadcast();
 
@@ -164,13 +177,13 @@ contract CreateGBContract is DeployGroupBillFactory {
         vm.stopBroadcast();
 
         vm.startBroadcast(deployerAddress);
-        // submit submitExpensesAfterPruning
-        Expense[] memory expenses = new Expense[](1);
+        expenses = new Expense[](1);
         expenses[0] = Expense({
             borrower: participantAddress,
             lender: deployerAddress,
             amount: 1e18
         });
+
         groupBill.submitExpensesAfterPruning(
             expenses,
             groupBill.getExpensesHash()
@@ -217,7 +230,7 @@ contract CreateGBContract is DeployGroupBillFactory {
             address(token),
             address(groupBill)
         );
-        console.log("script: nonces:");
+        // console.log("script: nonces:");
         // console.logAddress(participantAddress);
         // permit2.permit(participantAddress, singlePermit, signature);
         // vm.stopBroadcast();
@@ -226,27 +239,23 @@ contract CreateGBContract is DeployGroupBillFactory {
         vm.stopBroadcast();
 
         vm.startBroadcast(participantAddress);
-        groupBill.permitEx(
+        groupBill.permit(
             participantAddress,
             singlePermit,
-            signature,
-            permit2
+            signature
+            // permit2
         );
-
+        // TODO: msg.sender gets checked in transferFrom -> _transform
+        // permit2.transferFrom(
+        //     participantAddress,
+        //     address(groupBill),
+        //     singlePermit.details.amount,
+        //     address(token)
+        // );
+        // console.logUint(token.balanceOf(address(this)));
 
         vm.stopBroadcast();
 
-        // console.log(totalParticipantLoan);
-        // console.logAddress(factoryAddress);
-        // console.logAddress(address(groupBill));
-
-        // vm.startBroadcast(deployerPrivateKey);
-        // groupBill.requestExpensePruning();
-        // vm.stopBroadcast();
-
-        // groupBill.requestExpensePruning();
-
-        // console.logAddress(address(groupBill));
     }
 }
 
@@ -272,14 +281,14 @@ contract ExpensePruningRequestContract is Script {
 
         // groupBill.addParticipants(newPeeps);
         // bytes32 expensesHash = groupBill.getExpensesHash();
-        uint256 deployerPrivateKey = vm.envUint("ETH_PRIVATE_KEY");
-        vm.startBroadcast(deployerPrivateKey);
-        bill.addExpense(participantAddress, 2000000);
-        vm.stopBroadcast();
+        // uint256 deployerPrivateKey = vm.envUint("ETH_PRIVATE_KEY");
+        // vm.startBroadcast(deployerPrivateKey);
+        // bill.addExpense(participantAddress, 2000000);
+        // vm.stopBroadcast();
 
-        vm.startBroadcast(participantAddress);
+        // vm.startBroadcast(participantAddress);
         // groupBill.join();
-        bill.requestExpensePruning();
+        // bill.requestExpensePruning();
 
         // console.log("GroupBill state:");
         // console.logUint(uint(groupBill.getState()));
@@ -287,6 +296,6 @@ contract ExpensePruningRequestContract is Script {
         // console.logBool(
         //     groupBill.getParticipantState() == GroupBill.JoinState.JOINED
         // );
-        vm.stopBroadcast();
+        // vm.stopBroadcast();
     }
 }
