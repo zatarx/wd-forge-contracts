@@ -13,7 +13,7 @@ contract GroupBillFactory is Ownable {
     mapping(address => GroupBill[]) public s_ownerGroupBills;
 
     IPermit2 private i_permit2;
-    uint private s_acceptedTokensCount;
+    uint private s_acceptedTokensLength;
     address private immutable i_consumerEOA;
     mapping(uint => IERC20) private s_acceptedTokens;
 
@@ -54,10 +54,15 @@ contract GroupBillFactory is Ownable {
         if (acceptedTokens.length == 0) {
             revert GroupBillFactory__AcceptedTokensNotEmpty();
         }
+
+        for (uint256 i = 0; i < s_acceptedTokensLength; i++) {
+            delete s_acceptedTokens[i];
+        }
+
         for (uint256 i = 0; i < acceptedTokens.length; i++) {
             s_acceptedTokens[i] = IERC20(acceptedTokens[i]);
         }
-        s_acceptedTokensCount = acceptedTokens.length;
+        s_acceptedTokensLength = acceptedTokens.length;
     }
 
     function getOwnerGroupBills(
@@ -67,8 +72,8 @@ contract GroupBillFactory is Ownable {
     }
 
     function getAcceptedTokens() public view returns (address[] memory) {
-        address[] memory tokens = new address[](s_acceptedTokensCount);
-        for (uint i = 0; i < s_acceptedTokensCount; i++) {
+        address[] memory tokens = new address[](s_acceptedTokensLength);
+        for (uint i = 0; i < s_acceptedTokensLength; i++) {
             tokens[i] = address(s_acceptedTokens[i]);
         }
         return tokens;

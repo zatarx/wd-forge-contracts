@@ -5,6 +5,8 @@ out = "out"
 libs = ["lib", "@openzeppelin/=lib/openzeppelin-contracts"]
 viaIR = true
 auto_detect_solc = true
+optimizer = true
+optimizer-runs = 10_000
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
