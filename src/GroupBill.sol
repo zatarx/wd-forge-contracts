@@ -59,7 +59,6 @@ contract GroupBill is Ownable {
 
     mapping(address => mapping(string => GroupExpense)) private s_groupExpenses;
     mapping(address => mapping(string => GroupExpenseItemV2[])) private s_groupExpensesV2;
-    mapping(address => string[]) private s_groupExpenseNames;
     mapping(address => string[]) private s_groupExpenseNamesV2;
 
     uint private s_prunedExpensesLength;
@@ -168,31 +167,6 @@ contract GroupBill is Ownable {
         joinState = s_isParticipant[msg.sender];
     }
 
-    function submitGroupExpenses(
-        address[] memory borrowers,
-        uint256 amount,
-        string memory expenseName
-    ) public isParticipant {
-        s_groupExpenses[msg.sender][expenseName] = GroupExpense({
-            amount: amount,
-            borrowers: borrowers
-        });
-
-        for (uint i = 0; i < s_groupExpenseNames[msg.sender].length; i++) {
-            bytes32 groupExpenseNameHash = keccak256(
-                abi.encode(s_groupExpenseNames[msg.sender][i])
-            );
-            bytes32 parameterGroupExpenseHash = keccak256(
-                abi.encode(expenseName)
-            );
-
-            if (groupExpenseNameHash == parameterGroupExpenseHash) {
-                return;
-            }
-        }
-        s_groupExpenseNames[msg.sender].push(expenseName);
-    }
-
     function submitGroupExpensesV2(
         GroupExpenseItemV2[] memory groupExpenseItems,
         string memory expenseName
@@ -220,16 +194,16 @@ contract GroupBill is Ownable {
     ) public isParticipant {
         delete s_groupExpenses[msg.sender][expenseName];
 
-        for (uint i = 0; i < s_groupExpenseNames[msg.sender].length; i++) {
+        for (uint i = 0; i < s_groupExpenseNamesV2[msg.sender].length; i++) {
             bytes32 groupExpenseNameHash = keccak256(
-                abi.encode(s_groupExpenseNames[msg.sender][i])
+                abi.encode(s_groupExpenseNamesV2[msg.sender][i])
             );
             bytes32 parameterGroupExpenseHash = keccak256(
                 abi.encode(expenseName)
             );
 
             if (groupExpenseNameHash == parameterGroupExpenseHash) {
-                delete s_groupExpenseNames[msg.sender][i];
+                delete s_groupExpenseNamesV2[msg.sender][i];
                 break;
             }
         }
@@ -279,18 +253,6 @@ contract GroupBill is Ownable {
         emit ExpensePruningRequested(s_expensesHash);
         // TODO: uncomment when finished testing
         s_state = GroupBillState.PRUNING_IN_PROGRESS;
-    }
-
-    function getFlatExpenses(
-        bytes32 expensesHash
-    ) public view returns (Expense[] memory) {
-        if (expensesHash != s_expensesHash) {
-            revert GroupBill__ExpensesHashMismatch(
-                s_expensesHash,
-                expensesHash
-            );
-        }
-        return getFlatExpenses();
     }
 
     function getFlatExpensesV2(
@@ -425,39 +387,6 @@ contract GroupBill is Ownable {
 
                 for (uint z = 0; z < ges.length; z++) {
                     currentExpenses[flatExpensesCount] = Expense({lender: lender, borrower: ges[z].borrower, amount: ges[z].amount});
-                    flatExpensesCount++;
-                }
-            }
-        }
-        return currentExpenses;
-    }
-
-    function getFlatExpenses() public view returns (Expense[] memory) {
-        uint256 flatExpensesLength = 0;
-
-        for (uint i = 0; i < s_participants.length; i++) {
-            address lender = s_participants[i];
-            for (uint j = 0; j < s_groupExpenseNames[lender].length; j++) {
-                string memory currentExpenseName = s_groupExpenseNames[lender][
-                    j
-                ];
-                flatExpensesLength += s_groupExpenses[lender][
-                    currentExpenseName
-                ].borrowers.length;
-            }
-        }
-
-        Expense[] memory currentExpenses = new Expense[](flatExpensesLength);
-        uint flatExpensesCount = 0;
-        for (uint i = 0; i < s_participants.length; i++) {
-            address lender = s_participants[i];
-
-            for (uint j = 0; j < s_groupExpenseNames[lender].length; j++) {
-                string memory currentExpenseName = s_groupExpenseNames[lender][j];
-                GroupExpense memory ge = s_groupExpenses[lender][currentExpenseName];
-
-                for (uint z = 0; z < ge.borrowers.length; z++) {
-                    currentExpenses[flatExpensesCount] = Expense({lender: lender, borrower: ge.borrowers[z], amount: ge.amount});
                     flatExpensesCount++;
                 }
             }
