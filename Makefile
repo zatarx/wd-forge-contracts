@@ -51,9 +51,6 @@ checkgb:
 creategb:
 	@forge script script/GroupBillFactory.s.sol:CreateGBContract --rpc-url http://localhost:8545 --broadcast -vvvvv
 
-creategbv2:
-	@forge script script/GroupBillFactory.s.sol:CreateGBContractV2 --rpc-url http://localhost:8545 --broadcast -vvvvv
-
 prune:
 	@forge script script/GroupBillFactory.s.sol:ExpensePruningRequestContract --rpc-url http://localhost:8545 --broadcast -vvvvv
 
