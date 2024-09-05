@@ -9,6 +9,7 @@ import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC2
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IPermit2} from "./Utils.sol";
+import {GroupExpenseItem, NamedGroupExpenses, LenderGroupExpenses, Expense} from "./helpers/Expenses.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 error GroupBill__NotParticipant(address sender);
@@ -18,17 +19,6 @@ error GroupBill__ParticipantsEmpty();
 error GroupBill__NotAllowedToJoin(address sender);
 error GroupBill__AddressIsNotTrusted(address sender);
 error GroupBill__InvalidToken(address token);
-
-struct Expense {
-    address lender; // who funds will be transfered to (msg.sender, aka owner of the expense)
-    address borrower; // who funds will be deducted from
-    uint256 amount;
-}
-
-struct GroupExpense {
-    address[] borrowers;
-    uint256 amount;
-}
 
 
 contract GroupBill is Ownable {
@@ -51,14 +41,13 @@ contract GroupBill is Ownable {
     address public immutable i_consumerEOA;
     
     GroupBillState private s_state;
-    IPermit2 private i_permit2;
     string private s_name;
 
     bytes32 private s_expensesHash;
     uint private s_expensesCount;
     mapping(uint => Expense) private s_expenses;
 
-    mapping(address => mapping(string => GroupExpense)) private s_groupExpenses;
+    mapping(address => mapping(string => GroupExpenseItem[])) private s_groupExpenses;
     mapping(address => string[]) private s_groupExpenseNames;
 
     uint private s_prunedExpensesLength;
@@ -115,8 +104,37 @@ contract GroupBill is Ownable {
         return s_isParticipant[msg.sender];
     }
 
+    function getParticipants() public view returns(address[] memory) {
+        return s_participants;
+    }
+
     function getPermit2() public view returns (IPermit2 permit2) {
         permit2 = i_permit2;
+    }
+
+    /// @dev returns expense tree view [{<lender> -> [{<expenseName> -> [{<borrower>, <amount>}]}]}]
+    /// This method is expected to be called by the clients
+    function getAllExpenseHierarchy() public view returns (LenderGroupExpenses[] memory) {
+        LenderGroupExpenses[] memory lenderGroupExpenses = new LenderGroupExpenses[](s_participants.length);
+
+        for (uint i = 0; i < s_participants.length; i++) {
+            address lender = s_participants[i];
+            lenderGroupExpenses[i] = LenderGroupExpenses({
+                lender: lender,
+                namedGroupExpenses: new NamedGroupExpenses[](s_groupExpenseNames[lender].length)
+            });
+
+            for (uint j = 0; j < s_groupExpenseNames[lender].length; j++) {
+                string memory currentExpenseName = s_groupExpenseNames[lender][j];
+
+                lenderGroupExpenses[i].namedGroupExpenses[j] = NamedGroupExpenses({
+                    name: currentExpenseName,
+                    groupExpenses: s_groupExpenses[lender][currentExpenseName]
+                });
+            }
+        }
+
+        return lenderGroupExpenses;
     }
 
     function addParticipant(address participant, JoinState state) private {
@@ -139,14 +157,11 @@ contract GroupBill is Ownable {
     }
 
     function submitGroupExpenses(
-        address[] memory borrowers,
-        uint256 amount,
+        GroupExpenseItem[] memory groupExpenseItems,
         string memory expenseName
     ) public isParticipant {
-        s_groupExpenses[msg.sender][expenseName] = GroupExpense({
-            amount: amount,
-            borrowers: borrowers
-        });
+        // validation of groupExpenseItems is happening on the client
+        s_groupExpenses[msg.sender][expenseName] = groupExpenseItems;
 
         for (uint i = 0; i < s_groupExpenseNames[msg.sender].length; i++) {
             bytes32 groupExpenseNameHash = keccak256(
@@ -335,7 +350,6 @@ contract GroupBill is Ownable {
         }
     }
 
-
     function getFlatExpenses() public view returns (Expense[] memory) {
         uint256 flatExpensesLength = 0;
 
@@ -347,7 +361,7 @@ contract GroupBill is Ownable {
                 ];
                 flatExpensesLength += s_groupExpenses[lender][
                     currentExpenseName
-                ].borrowers.length;
+                ].length;
             }
         }
 
@@ -358,19 +372,15 @@ contract GroupBill is Ownable {
 
             for (uint j = 0; j < s_groupExpenseNames[lender].length; j++) {
                 string memory currentExpenseName = s_groupExpenseNames[lender][j];
-                GroupExpense memory ge = s_groupExpenses[lender][currentExpenseName];
+                GroupExpenseItem[] memory ges = s_groupExpenses[lender][currentExpenseName];
 
-                for (uint z = 0; z < ge.borrowers.length; z++) {
-                    currentExpenses[flatExpensesCount] = Expense({lender: lender, borrower: ge.borrowers[z], amount: ge.amount});
+                for (uint z = 0; z < ges.length; z++) {
+                    currentExpenses[flatExpensesCount] = Expense({lender: lender, borrower: ges[z].borrower, amount: ges[z].amount});
                     flatExpensesCount++;
                 }
             }
         }
         return currentExpenses;
-    }
-
-    function getPermit2() public view returns (IPermit2 permit2) {
-        permit2 = i_permit2;
     }
 
     modifier isParticipant() {

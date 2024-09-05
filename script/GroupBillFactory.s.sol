@@ -7,7 +7,7 @@ import {SigUtils} from "../src/SigUtils.sol";
 import {IPermit2} from "../src/Utils.sol";
 import "../test/mocks/ERC20TokenMock.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {GroupBill, Expense} from "../src/GroupBill.sol";
+import {GroupBill, Expense, GroupExpenseItem, NamedGroupExpenses, LenderGroupExpenses} from "../src/GroupBill.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
@@ -94,6 +94,7 @@ contract TestDeployGroupBillFactory is DeployGroupBillFactory {
     }
 }
 
+
 contract CreateGBContract is DeployGroupBillFactory {
     using PermitHash for IAllowanceTransfer.PermitSingle;
     mapping(address => uint) private s_nonces;
@@ -111,20 +112,6 @@ contract CreateGBContract is DeployGroupBillFactory {
         uint256 deployerPrivateKey = vm.envUint("TEST_ETH_PRIVATE_KEY");
         address deployerAddress = vm.envAddress("TEST_ETH_OWNER_ADDRESS");
         address consumerEOA = vm.envAddress("TEST_ETH_CONSUMER_EOA");
-
-        // vm.broadcast(deployerPrivateKey);
-        // MockToken token = new MockToken("TEST_TOKEN", "TST");
-
-        // tokens = new address[](1);
-        // tokens[0] = address(token);
-
-        // factoryAddress = super.deploy(
-        //     deployerPrivateKey,
-        //     deployerAddress,
-        //     tokens,
-        //     consumerEOA,
-        //     address(0)
-        // );
 
         string
             memory testMnemonic = "test test test test test test test test test test test junk";
@@ -164,7 +151,10 @@ contract CreateGBContract is DeployGroupBillFactory {
         groupBill.addParticipants(newPeeps);
 
         // bytes32 expensesHash = groupBill.getExpensesHash();
-        groupBill.submitGroupExpenses(newPeeps, 1e18, "Booze");
+        GroupExpenseItem[] memory geItems = new GroupExpenseItem[](1);
+        geItems[0] = GroupExpenseItem({borrower: participantAddress, amount: 1e18});
+
+        groupBill.submitGroupExpenses(geItems, "Booze");
         Expense[] memory expenses = groupBill.getFlatExpenses();
         console.log("Expenses length from script");
         console.logUint(expenses.length);
@@ -258,6 +248,8 @@ contract CreateGBContract is DeployGroupBillFactory {
 
     }
 }
+
+
 
 contract CheckGBScript is Script {
     function run() public {
