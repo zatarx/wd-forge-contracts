@@ -18,9 +18,6 @@ docs/
 # github
 .github/
 
-# forge 
-lib/*
-
 # python
 venv/*
 
@@ -28,3 +25,6 @@ node_modules
 
 todolist.md
 
+# Node.js
+yarn.lock
+package
