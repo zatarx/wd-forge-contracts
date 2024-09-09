@@ -19,11 +19,7 @@ contract GroupBillFactory is Ownable {
 
     event GroupBillCreation(address indexed contractId);
 
-    constructor(
-        address initialOwner,
-        address consumerEOA,
-        IPermit2 permit2
-    ) Ownable(initialOwner) {
+    constructor(address initialOwner, address consumerEOA, IPermit2 permit2) Ownable(initialOwner) {
         i_consumerEOA = consumerEOA;
         i_permit2 = permit2;
     }
@@ -36,45 +32,35 @@ contract GroupBillFactory is Ownable {
         if (address(s_acceptedTokens[tokenId]) == address(0)) {
             revert GroupBillFactory__TokenNotFound(tokenId);
         }
-        groupBill = new GroupBill(
-            msg.sender,
-            token,
-            initialParticipants,
-            i_consumerEOA,
-            i_permit2
-        );
+        groupBill = new GroupBill(msg.sender, token, initialParticipants, i_consumerEOA, i_permit2);
         s_ownerGroupBills[msg.sender].push(groupBill);
         emit GroupBillCreation(address(groupBill));
     }
 
-    function setAcceptedTokens(
-        address[] memory acceptedTokens
-    ) public onlyOwner {
+    function setAcceptedTokens(address[] memory acceptedTokens) public onlyOwner {
         // TODO: deploy to sepolia and test out storing erc20 tokens vs address []
         if (acceptedTokens.length == 0) {
             revert GroupBillFactory__AcceptedTokensNotEmpty();
         }
 
-        for (uint256 i = 0; i < s_acceptedTokensLength; i++) {
-            delete s_acceptedTokens[i];
+        for (uint256 tokenId = 0; tokenId < s_acceptedTokensLength; tokenId++) {
+            delete s_acceptedTokens[tokenId];
         }
 
-        for (uint256 i = 0; i < acceptedTokens.length; i++) {
-            s_acceptedTokens[i] = IERC20(acceptedTokens[i]);
+        for (uint256 tokenId = 0; tokenId < acceptedTokens.length; tokenId++) {
+            s_acceptedTokens[tokenId] = IERC20(acceptedTokens[tokenId]);
         }
         s_acceptedTokensLength = acceptedTokens.length;
     }
 
-    function getOwnerGroupBills(
-        address owner
-    ) public view returns (GroupBill[] memory) {
+    function getOwnerGroupBills(address owner) public view returns (GroupBill[] memory) {
         return s_ownerGroupBills[owner];
     }
 
     function getAcceptedTokens() public view returns (address[] memory) {
         address[] memory tokens = new address[](s_acceptedTokensLength);
-        for (uint i = 0; i < s_acceptedTokensLength; i++) {
-            tokens[i] = address(s_acceptedTokens[i]);
+        for (uint tokenId = 0; tokenId < s_acceptedTokensLength; tokenId++) {
+            tokens[tokenId] = address(s_acceptedTokens[tokenId]);
         }
         return tokens;
     }

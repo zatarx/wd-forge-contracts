@@ -156,7 +156,7 @@ contract CreateGBContract is DeployGroupBillFactory {
             amount: 1e18
         });
 
-        groupBill.submitGroupExpenses(borrowerAmounts, "Booze");
+        groupBill.submitExpense(borrowerAmounts, "Booze");
 
         Expense[] memory expenses = groupBill.getFlatExpenses();
         console.log("Expenses length from script");
@@ -203,7 +203,7 @@ contract CreateGBContract is DeployGroupBillFactory {
                 token: address(token),
                 amount: uint160(
                     totalParticipantLoan +
-                        groupBill.getTxFee(totalParticipantLoan)
+                        groupBill.getTxFee()
                 ),
                 expiration: uint48(vm.getBlockTimestamp() + 5 minutes),
                 nonce: uint48(this.nonces(participantAddress))
@@ -229,10 +229,8 @@ contract CreateGBContract is DeployGroupBillFactory {
 
         // vm.broadcast(participantPrivateKey);
         groupBill.permit(
-            participantAddress,
             singlePermit,
             signature
-            // permit2
         );
 
         vm.stopBroadcast();

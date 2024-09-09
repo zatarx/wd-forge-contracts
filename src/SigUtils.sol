@@ -2,7 +2,6 @@
 pragma solidity ^0.8.23;
 import {IPermit2} from "../src/Utils.sol";
 
-
 contract SigUtils {
     IPermit2 private immutable i_permit2;
 
@@ -11,13 +10,6 @@ contract SigUtils {
     }
 
     function hashTypedData(bytes32 dataHash) external view returns (bytes32) {
-        return
-            keccak256(
-                abi.encodePacked(
-                    "\x19\x01",
-                    i_permit2.DOMAIN_SEPARATOR(),
-                    dataHash
-                )
-            );
+        return keccak256(abi.encodePacked("\x19\x01", i_permit2.DOMAIN_SEPARATOR(), dataHash));
     }
 }
