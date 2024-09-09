@@ -7,7 +7,7 @@ import {SigUtils} from "../src/SigUtils.sol";
 import {IPermit2} from "../src/Utils.sol";
 import "../test/mocks/ERC20TokenMock.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {GroupBill, Expense, GroupExpenseItem, NamedGroupExpenses, LenderGroupExpenses} from "../src/GroupBill.sol";
+import {GroupBill, Expense, BorrowerAmount, LenderAmount, PostPruningBorrowerExpense} from "../src/GroupBill.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
@@ -94,7 +94,6 @@ contract TestDeployGroupBillFactory is DeployGroupBillFactory {
     }
 }
 
-
 contract CreateGBContract is DeployGroupBillFactory {
     using PermitHash for IAllowanceTransfer.PermitSingle;
     mapping(address => uint) private s_nonces;
@@ -151,10 +150,14 @@ contract CreateGBContract is DeployGroupBillFactory {
         groupBill.addParticipants(newPeeps);
 
         // bytes32 expensesHash = groupBill.getExpensesHash();
-        GroupExpenseItem[] memory geItems = new GroupExpenseItem[](1);
-        geItems[0] = GroupExpenseItem({borrower: participantAddress, amount: 1e18});
+        BorrowerAmount[] memory borrowerAmounts = new BorrowerAmount[](1);
+        borrowerAmounts[0] = BorrowerAmount({
+            borrower: participantAddress,
+            amount: 1e18
+        });
 
-        groupBill.submitGroupExpenses(geItems, "Booze");
+        groupBill.submitGroupExpenses(borrowerAmounts, "Booze");
+
         Expense[] memory expenses = groupBill.getFlatExpenses();
         console.log("Expenses length from script");
         console.logUint(expenses.length);
@@ -163,36 +166,44 @@ contract CreateGBContract is DeployGroupBillFactory {
 
         vm.startBroadcast(participantAddress);
         groupBill.join();
+
         groupBill.requestExpensePruning();
         vm.stopBroadcast();
 
         vm.startBroadcast(deployerAddress);
-        expenses = new Expense[](1);
-        expenses[0] = Expense({
+
+        uint totalAmount = 1e18;
+        LenderAmount[] memory las = new LenderAmount[](1);
+        las[0] = LenderAmount({lender: deployerAddress, amount: totalAmount});
+
+        PostPruningBorrowerExpense[]
+            memory ppBorrowerExpenses = new PostPruningBorrowerExpense[](1);
+        ppBorrowerExpenses[0] = PostPruningBorrowerExpense({
             borrower: participantAddress,
-            lender: deployerAddress,
-            amount: 1e18
+            totalAmount: totalAmount,
+            lenderAmounts: las
         });
 
-        groupBill.submitExpensesAfterPruning(
-            expenses,
-            groupBill.getExpensesHash()
+        bytes32 expensesHash = groupBill.getExpensesHash();
+        groupBill.submitPostPruningBorrowerExpenses(
+            ppBorrowerExpenses,
+            expensesHash
         );
-
         vm.stopBroadcast();
 
-        vm.startBroadcast(participantPrivateKey);
-        // groupBill.approveTokenSpend(type(uint160).max);
-        // console.log("GroupBill address");
-        // console.logAddress(address(groupBill));
+        vm.startBroadcast(participantAddress);
 
-        uint256 totalParticipantLoan = groupBill.getSenderTotalLoan();
+        uint256 totalParticipantLoan = groupBill
+            .getPostPruningSenderTotalLoan();
+        console.log("total loan");
+        console.logUint(totalParticipantLoan);
+
         IAllowanceTransfer.PermitDetails
             memory permitDetails = IAllowanceTransfer.PermitDetails({
                 token: address(token),
                 amount: uint160(
                     totalParticipantLoan +
-                        groupBill.getTxFee(token, totalParticipantLoan)
+                        groupBill.getTxFee(totalParticipantLoan)
                 ),
                 expiration: uint48(vm.getBlockTimestamp() + 5 minutes),
                 nonce: uint48(this.nonces(participantAddress))
@@ -204,8 +215,9 @@ contract CreateGBContract is DeployGroupBillFactory {
                 sigDeadline: uint256(permitDetails.expiration + 1 days)
             });
 
-        IPermit2 permit2 = groupBill.getPermit2();
+        IPermit2 permit2 = groupBill.i_permit2();
         token.approve(address(permit2), type(uint160).max);
+
         SigUtils utils = new SigUtils(permit2);
         bytes32 typedHash = utils.hashTypedData(singlePermit.hash());
 
@@ -215,41 +227,23 @@ contract CreateGBContract is DeployGroupBillFactory {
         );
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        (uint160 amount, uint48 expiration, uint48 nonce) = permit2.allowance(
-            participantAddress,
-            address(token),
-            address(groupBill)
-        );
-        // console.log("script: nonces:");
-        // console.logAddress(participantAddress);
-        // permit2.permit(participantAddress, singlePermit, signature);
-        // vm.stopBroadcast();
-
         // vm.broadcast(participantPrivateKey);
-        vm.stopBroadcast();
-
-        vm.startBroadcast(participantAddress);
         groupBill.permit(
             participantAddress,
             singlePermit,
             signature
             // permit2
         );
-        // TODO: msg.sender gets checked in transferFrom -> _transform
-        // permit2.transferFrom(
-        //     participantAddress,
-        //     address(groupBill),
-        //     singlePermit.details.amount,
-        //     address(token)
-        // );
-        // console.logUint(token.balanceOf(address(this)));
 
         vm.stopBroadcast();
 
+        vm.startBroadcast(deployerAddress);
+        groupBill.settle();
+
+        vm.stopBroadcast();
+        console.logUint(groupBill.getCoreTokenBalance());
     }
 }
-
-
 
 contract CheckGBScript is Script {
     function run() public {
@@ -259,7 +253,7 @@ contract CheckGBScript is Script {
         (address participantAddress, ) = deriveRememberKey(testMnemonic, 1);
         GroupBill bill = GroupBill(0xa16E02E87b7454126E5E10d957A927A7F5B5d2be);
 
-        console.logUint(uint(bill.getState()));
+        console.logUint(uint(bill.s_state()));
     }
 }
 

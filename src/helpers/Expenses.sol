@@ -1,23 +1,39 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-struct GroupExpenseItem {
+struct BorrowerAmount {
     address borrower;
     uint amount;
 }
 
-struct NamedGroupExpenses {
+struct NamedBorrowerAmounts {
     string name;
-    GroupExpenseItem[] groupExpenses;
+    BorrowerAmount[] borrowerAmounts;
 }
 
-struct LenderGroupExpenses {
+struct LenderNamedExpense {
     address lender;
-    NamedGroupExpenses[] namedGroupExpenses;
+    NamedBorrowerAmounts[] namedBorrowerAmounts;
 }
 
 struct Expense {
     address lender; // who funds will be transfered to (msg.sender, aka owner of the expense)
     address borrower; // who funds will be deducted from
     uint256 amount;
+}
+
+struct LenderAmount {
+    address lender;
+    uint amount;
+}
+
+struct PostPruningBorrowerExpense {
+    address borrower;
+    uint totalAmount;
+    LenderAmount[] lenderAmounts;
+}
+
+struct PostPruningTotalAmount {
+    uint totalAmount;
+    LenderAmount[] lenderAmounts;
 }
