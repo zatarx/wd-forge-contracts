@@ -22,3 +22,10 @@ Run build to check the installation:
 ```
 forge build
 ```
+
+To add a new dependency:
+```
+git submodule add <submodule_url> lib/<submodule_name>
+# then refresh your remappints 
+# can be done with `forge remappings` command or by hand
+```
