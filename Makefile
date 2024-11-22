@@ -42,6 +42,9 @@ endif
 deploy:
 	@forge script script/GroupBillFactory.s.sol:DeployGroupBillFactory --rpc-url http://localhost:8545 --broadcast -vvvvv
 
+deployep:
+	@forge script script/EPTesting.s.sol:DeployEntryPoint --rpc-url http://localhost:8545 --broadcast -vvvvv
+
 tdeploy:
 	@forge script script/GroupBillFactory.s.sol:TestDeployGroupBillFactory --rpc-url http://localhost:8545 --broadcast -vvvvv
 
@@ -49,7 +52,7 @@ checkgb:
 	@forge script script/GroupBillFactory.s.sol:CheckGBScript --rpc-url http://localhost:8545 --broadcast -vvvvv
 
 creategb:
-	@forge script script/GroupBillFactory.s.sol:CreateGBContract --rpc-url http://localhost:8545 --broadcast -vvvvv
+	@forge script script/GroupBillFactory.s.sol:GBE2ETest --rpc-url http://localhost:8545 --broadcast -vvvvv
 
 prune:
 	@forge script script/GroupBillFactory.s.sol:ExpensePruningRequestContract --rpc-url http://localhost:8545 --broadcast -vvvvv

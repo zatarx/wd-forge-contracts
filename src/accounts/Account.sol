@@ -8,7 +8,11 @@ import "forge-std/Script.sol";
 import {IAccount} from "account-abstraction/contracts/interfaces/IAccount.sol";
 import {IAccountExecute} from "account-abstraction/contracts/interfaces/IAccountExecute.sol";
 import {PackedUserOperation} from "account-abstraction/contracts/interfaces/PackedUserOperation.sol";
+
+import "account-abstraction/contracts/interfaces/IEntryPoint.sol";
+import "../GroupBillAccessControl.sol";
 import {GroupBill} from "../GroupBill.sol";
+import {GroupBillFactory} from "../GroupBillFactory.sol";
 
 error AccountFactory__ActionNotAllowed(address sender);
 error Account__SenderIsNotAllowed(address sender);
@@ -25,43 +29,49 @@ struct PackedUOWithoutSignature {
     // bytes signature;
 }
 
-
 // ERC-4337 domain specific accounts
 contract GroupBillAccount is IAccount, IAccountExecute {
-    address public entryPoint;
+    GroupBillAccessControl private immutable i_ac;
+    address public immutable i_entryPoint;
 
-    constructor(address entryPointAddress) {
-        entryPoint = entryPointAddress;
+    constructor(address entryPoint, address ac) {
+        i_entryPoint = address(entryPoint);
+        i_ac = GroupBillAccessControl(ac);
     }
 
     function validateUserOp(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash,
         uint256 missingAccountFunds
-    ) public view onlyEntryPoint override returns (uint) {
-        // check the signature of the wallet signer (user signs the transaction and we verify that it was the user who signed)
-        // interpret calldata
-        // assembly:
-        // .method_signature(method_signature_params)
-
-        // pass all the fields from PackedUserOperation except for the signature
-
-        // TODO: make sure that the the msg.sender equals the entrypoint address
-        // if (entryPoint != msg.sender) {
-        //     revert Account__SenderIsNotAllowed(msg.sender);
-        // }
-
-        // TODO: <recovered> must be in the list of participants/allowed users of the group bill
-        // REVISION: <recovered> is assigned to the contract msgSigner field and then the op gets called -->
-        // --> if there're any modifiers on the function, they'll check that msgSigner/recovered is allowed
-
+    ) public view override onlyEntryPoint returns (uint) {
         // TODO: with GroupBillFactoryAccount, <recovered> can be anybody (request limit must be enforced)
         // set in gas manager node per address rules (50 requests per address)
+        bytes32 uoHash = MessageHashUtils.toEthSignedMessageHash(
+            keccak256(
+                abi.encode(
+                    userOp.sender,
+                    userOp.nonce,
+                    userOp.initCode,
+                    userOp.callData,
+                    userOp.accountGasLimits,
+                    userOp.preVerificationGas,
+                    userOp.gasFees,
+                    userOp.paymasterAndData
+                )
+            )
+        );
+        address recovered = ECDSA.recover(uoHash, userOp.signature);
+
+        // todo: maybe return 1
+        require(
+            i_ac.hasRole(PARTICIPANT_ROLE, recovered) && !i_ac.hasRole(BLACKLIST_ROLE, recovered),
+            "Address either doesn't have sufficient participant permission or is blacklisted"
+        );
 
         return 0; // return "successful validation" result
     }
 
-    function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) public onlyEntryPoint override {
+    function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) public override onlyEntryPoint {
         (address groupBillAddress, bytes memory userSignedCalldata) = abi.decode(userOp.callData, (address, bytes));
 
         console.log("group bill address");
@@ -89,11 +99,12 @@ contract GroupBillAccount is IAccount, IAccountExecute {
 
         GroupBill gb = GroupBill(groupBillAddress);
         gb.executeOperation(userSignedCalldata, recovered);
-        address[] memory allParticipants = gb.getParticipants();
-        for (uint i = 0; i < allParticipants.length; i++) {
-            console.log("participant");
-            console.logAddress(allParticipants[i]);
-        }
+
+        // address[] memory allParticipants = gb.getParticipants();
+        // for (uint i = 0; i < allParticipants.length; i++) {
+        //     console.log("participant");
+        //     console.logAddress(allParticipants[i]);
+        // }
         // console.log(gb.getName());
         // gb.testMethod(bytes("32"));
         // https://ethereum.stackexchange.com/questions/6354/how-do-i-construct-a-call-to-another-contract-using-inline-assembly
@@ -102,7 +113,7 @@ contract GroupBillAccount is IAccount, IAccountExecute {
     }
 
     modifier onlyEntryPoint() {
-        if (msg.sender != entryPoint) {
+        if (msg.sender != address(i_entryPoint)) {
             revert AccountFactory__ActionNotAllowed(msg.sender);
         }
         _;
@@ -110,30 +121,19 @@ contract GroupBillAccount is IAccount, IAccountExecute {
 }
 
 contract GroupBillFactoryAccount is IAccount, IAccountExecute {
-    address public entryPoint;
+    GroupBillAccessControl private i_ac;
+    address private immutable i_entryPoint;
+    // address public entryPoint;
 
-    constructor(address entryPointAddress) {
-        entryPoint = entryPointAddress;
+    constructor(address entryPoint, address ac) {
+        i_entryPoint = address(entryPoint);
+        i_ac = GroupBillAccessControl(ac);
     }
 
     function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) public override {
-        (address groupBillAddress, bytes memory callData) = abi.decode(userOp.callData, (address, bytes));
+        (address groupBillAddress, bytes memory userSignedCalldata) = abi.decode(userOp.callData, (address, bytes));
         // https://ethereum.stackexchange.com/questions/6354/how-do-i-construct-a-call-to-another-contract-using-inline-assembly
 
-        // execute user operation either by calling group bill factory or group bill
-    }
-
-    function validateUserOp(
-        PackedUserOperation calldata userOp,
-        bytes32 userOpHash,
-        uint256 missingAccountFunds
-    ) public pure override returns (uint) {
-        // check the signature of the wallet signer (user signs the transaction and we verify that it was the user who signed)
-        // interpret calldata
-        // assembly:
-        // .method_signature(method_signature_params)
-
-        // pass all the fields from PackedUserOperation except for the signature
         bytes32 uoHash = MessageHashUtils.toEthSignedMessageHash(
             keccak256(
                 abi.encode(
@@ -150,14 +150,46 @@ contract GroupBillFactoryAccount is IAccount, IAccountExecute {
         );
         address recovered = ECDSA.recover(uoHash, userOp.signature);
 
+        (address gbfAddress, bytes memory callData) = abi.decode(userOp.callData, (address, bytes));
+        GroupBillFactory gbf = GroupBillFactory(gbfAddress);
+
+        gbf.executeOperation(userSignedCalldata, recovered);
+
         // TODO: <recovered> must be in the list of participants/allowed users of the group bill
         // TODO: with GroupBillFactoryAccount, <recovered> can be anybody (request limit must be enforced)
         // set in gas manager node per address rules (50 requests per address)
+    }
 
+    function validateUserOp(
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash,
+        uint256 missingAccountFunds
+    ) public view override returns (uint) {
+        bytes32 uoHash = MessageHashUtils.toEthSignedMessageHash(
+            keccak256(
+                abi.encode(
+                    userOp.sender,
+                    userOp.nonce,
+                    userOp.initCode,
+                    userOp.callData,
+                    userOp.accountGasLimits,
+                    userOp.preVerificationGas,
+                    userOp.gasFees,
+                    userOp.paymasterAndData
+                )
+            )
+        );
+        address recovered = ECDSA.recover(uoHash, userOp.signature);
+        require(
+            (i_ac.hasRole(GROUP_BILL_CREATOR_ROLE, recovered) && !i_ac.hasRole(BLACKLIST_ROLE, recovered)),
+            "User has to be a gb creator and not be blacklisted"
+        );
         return 0; // return "successful validation" result
     }
 }
 
+/// @dev GBAccountFactory will not be required
+/// initCode is 0, and sender is passed directly to the entryPoint once it's deployed
 contract GBAccountFactory {
     address private s_entryPoint;
 
@@ -194,97 +226,3 @@ contract GBAccountFactory {
         _;
     }
 }
-
-
-
-
-// contract GroupBillAccount is GroupBill, IAccount, IAccountExecute {
-//     address private immutable i_trustedForwarder;
-
-//     // constructor(
-//     //     address groupBillOwner,
-//     //     IERC20 coreToken,
-//     //     address[] memory initialParticipants,
-//     //     address consumerEOA,
-//     //     IPermit2 permit2,
-//     //     address trustedForwarder
-//     // ) GroupBill(groupBillOwner, coreToken, initialParticipants, consumerEOA, permit2) {
-//     //     i_trustedForwarder = trustedForwarder; // entrypoint address
-//     // }
-
-//     // function _msgSender() internal view returns (address payable signer) {
-//     //     signer = msg.sender;
-//     //     if (msg.data.length >= 20 && isTrustedForwarder(signer)) {
-//     //         assembly {
-//     //             signer := shr(96, calldataload(sub(calldatasize(), 20)))
-//     //         }
-//     //     }
-//     // }
-
-//     // function isTrustedForwarder(address forwarderAddress) private returns (bool) {
-//     //     return forwarderAddress == i_trustedForwarder;
-//     // }
-//     function validateUserOp(
-//         PackedUserOperation calldata userOp,
-//         bytes32 userOpHash,
-//         uint256 missingAccountFunds
-//     ) public pure {
-//         // check the signature of the wallet signer (user signs the transaction and we verify that it was the user who signed)
-//         // interpret calldata
-//         // assembly:
-//         // .method_signature(method_signature_params)
-//         return 0; // return "successful validation" result
-//     }
-
-//     function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) public {
-//         // execute user operation either by calling group bill factory or group bill
-//     }
-// }
-
-// // gets deployed by the owner
-// contract GroupBillFactoryAccount {
-//     // constructor(
-//     //     address initialOwner,
-//     //     address consumerEOA,
-//     //     IPermit2 permit2
-//     // ) GroupBillFactory(initialOwner, consumerEOA, permit2) {}
-
-//     function createGroupBillAccount(
-//         address groupBillOwner,
-//         IERC20 coreToken,
-//         address[] memory initialParticipants,
-//         address consumerEOA,
-//         IPermit2 permit2
-//     // ) external onlyOwner returns (address) {
-//     ) external returns (address) {
-//         GroupBillAccount acc = new GroupBillAccount(
-//             groupBillOwner,
-//             coreToken,
-//             initialParticipants,
-//             consumerEOA,
-//             permit2
-//         );
-
-//         return address(acc);
-//     }
-// }
-
-// WIP: TODO: integrate aa factory of factories to have a unique workflow of classes for each scenario (ref. Abstract Factory Pattern)
-// contract AccountAbstractFactory is Ownable {
-//     mapping(bytes => address) private immutable i_factoryMapping;
-
-//     constructor(
-//         address initialOwner,
-//         bytes[] memory factoryTypes,
-//         address[] memory factoryAddresses
-//     ) Ownable(initialOwner) {
-//         for (uint i = 0; i < factoryTypes.length; i++) {
-//             i_factoryMapping[factoryTypes[i]] = factoryAddresses[i];
-//         }
-//     }
-
-//     function createAccount(string factoryType, bytes calldata factoryCreationCalldata) public {
-//         address factory = i_factoryMapping[factoryType];
-//         // FactoryClass(factory) must make a call with factoryCreationCalldata (see how to do it with assembly)
-//     }
-// }

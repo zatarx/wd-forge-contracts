@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Script.sol";
+import "./GroupBillAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IPermit2} from "./Utils.sol";
@@ -15,11 +16,12 @@ error GroupBillFactory__AcceptedTokensNotEmpty();
 contract GroupBillFactory is Ownable, MsgSigner {
     mapping(address => GroupBill[]) public s_ownerGroupBills;
 
-    IPermit2 private i_permit2;
-    uint private s_acceptedTokensLength;
-    address private immutable i_consumerEOA;
-    address private immutable i_gbAccount;
-    mapping(uint => IERC20) private s_acceptedTokens;
+    IPermit2 public i_permit2;
+    GroupBillAccessControl public i_ac;
+    uint public s_acceptedTokensLength;
+    address public immutable i_consumerEOA;
+    address public immutable i_gbAccount;
+    mapping(uint => IERC20) public s_acceptedTokens;
 
     event GroupBillCreation(address indexed contractId);
 
@@ -28,6 +30,7 @@ contract GroupBillFactory is Ownable, MsgSigner {
         address consumerEOA,
         address gbfAccount,
         address gbAccount,
+        address ac,
         IPermit2 permit2
     )
         Ownable(initialOwner)
@@ -36,6 +39,7 @@ contract GroupBillFactory is Ownable, MsgSigner {
         i_consumerEOA = consumerEOA;
         i_permit2 = permit2;
         i_gbAccount = gbAccount;
+        i_ac = GroupBillAccessControl(ac);
     }
 
     function createNewGroupBill(
@@ -48,8 +52,11 @@ contract GroupBillFactory is Ownable, MsgSigner {
             revert GroupBillFactory__TokenNotFound(tokenId);
         }
 
-        groupBill = new GroupBill(s_msgSigner, token, initialParticipants, i_consumerEOA, i_gbAccount, i_permit2);
+        groupBill = new GroupBill(s_msgSigner, token, initialParticipants, i_consumerEOA, i_gbAccount, i_ac, i_permit2);
         s_ownerGroupBills[s_msgSigner].push(groupBill);
+
+        i_ac.grantRole(PAYMASTER_COVERABLE_ROLE, address(groupBill));
+        i_ac.grantRole(GROUP_BILL_ROLE, address(groupBill));
 
         emit GroupBillCreation(address(groupBill));
     }

@@ -3,14 +3,15 @@ pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
 import "forge-std/Script.sol";
+import "./helpers/Errors.sol";
+import "./helpers/Expenses.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
-import "./helpers/Errors.sol";
-import "./helpers/Expenses.sol";
+import {GroupBillAccessControl} from "./GroupBillAccessControl.sol";
 import {SigUtils} from "./SigUtils.sol";
 import {IPermit2} from "./Utils.sol";
 import {MsgSigner} from "./MsgSigner.sol";
@@ -34,6 +35,7 @@ contract GroupBill is Ownable, MsgSigner {
         JOINED
     }
 
+    GroupBillAccessControl private immutable i_ac;
     IPermit2 public immutable i_permit2;
     IERC20 public immutable i_coreToken; // participants can only donate in this token (gets set once)
     address public immutable i_consumerEOA;
@@ -69,12 +71,14 @@ contract GroupBill is Ownable, MsgSigner {
         address[] memory initialParticipants,
         address consumerEOA,
         address gbAccount,
+        GroupBillAccessControl ac,
         IPermit2 permit2
     ) Ownable(initialOwner) MsgSigner(gbAccount) {
         s_state = GroupBillState.OPEN;
         s_expensesCount = 0;
         i_coreToken = IERC20(coreToken);
         i_consumerEOA = consumerEOA;
+        i_ac = GroupBillAccessControl(ac);
         addParticipant(initialOwner, JoinState.JOINED);
         i_permit2 = permit2;
 
@@ -133,6 +137,9 @@ contract GroupBill is Ownable, MsgSigner {
         }
         s_isParticipant[s_msgSigner] = JoinState.JOINED;
         joinState = s_isParticipant[s_msgSigner];
+
+        /// @dev once role of participant is granted, it never gets revoked (POC feature)
+        i_ac.grantGBParticipantRole(s_msgSigner, address(this));
     }
 
     /// @dev validation of groupExpenseItems is happening on the client
@@ -225,7 +232,7 @@ contract GroupBill is Ownable, MsgSigner {
         return s_postPruningBorrowerExpenses[s_msgSigner].totalAmount;
     }
 
-    /// @dev hardcoded for now, i_coreToken should be dai/usdt-like
+    /// @dev hardcoded for now, i_coreToken should be dai/usdc-like
     function getTxFee() public pure returns (uint256) {
         return 5 * 1e17;
     }
@@ -322,6 +329,8 @@ contract GroupBill is Ownable, MsgSigner {
         }
         settlementCompleted = true;
         s_state = GroupBillState.SETTLED;
+
+        // TODO: revoke old PARTICIPANT permissions ??
     }
 
     function addPendingParticipants(address[] memory participants) private {

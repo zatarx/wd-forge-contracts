@@ -3,8 +3,8 @@ pragma solidity ^0.8.23;
 
 import "forge-std/Script.sol";
 import {EntryPoint} from "account-abstraction/contracts/core/EntryPoint.sol";
-import {CreateGBContract} from "./GroupBillFactory.s.sol";
 import {GroupBill} from "../src/GroupBill.sol";
+import {DeployAccessControlContract} from "./AC.sol";
 
 import {PackedUserOperation} from "account-abstraction/contracts/interfaces/PackedUserOperation.sol";
 import {GroupBillAccount} from "../src/accounts/Account.sol";
@@ -19,10 +19,12 @@ contract DeployEntryPointAndAccounts is Script {
 
     function run() external returns (address gbfAccount, address gbAccount) {
         console.log("--------ERC4337 EntryPoint & Accounts Deployment--------");
+        address acAddr = (new DeployAccessControlContract()).run();
 
         uint256 deployerPrivateKey = vm.envUint("ETH_PRIVATE_KEY");
 
         address entryPoint = vm.envOr("ENTRY_POINT_ADDRESS", address(0));
+
         gbfAccount = vm.envOr("GBF_ACCOUNT_ADDRESS", address(0));
         gbAccount = vm.envOr("GB_ACCOUNT_ADDRESS", address(0));
 
@@ -38,12 +40,12 @@ contract DeployEntryPointAndAccounts is Script {
             console.logAddress(entryPoint);
         }
         if (gbfAccount == address(0)) {
-            gbfAccount = address(new GroupBillFactoryAccount(entryPoint));
+            gbfAccount = address(new GroupBillFactoryAccount(entryPoint, acAddr));
             console.log("GBFactory Account deployed");
             console.logAddress(gbfAccount);
         }
         if (gbAccount == address(0)) {
-            gbAccount = address(new GroupBillAccount(entryPoint));
+            gbAccount = address(new GroupBillAccount(entryPoint, acAddr));
             console.log("GB Account deployed");
             console.logAddress(gbAccount);
         }
