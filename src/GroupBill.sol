@@ -2,18 +2,25 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
+import "forge-std/Script.sol";
+import "./helpers/Errors.sol";
+import "./helpers/Expenses.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
-import "./helpers/Errors.sol";
-import "./helpers/Expenses.sol";
+import {GroupBillAccessControl} from "./GroupBillAccessControl.sol";
 import {SigUtils} from "./SigUtils.sol";
 import {IPermit2} from "./Utils.sol";
+import {MsgSigner} from "./MsgSigner.sol";
 
-contract GroupBill is Ownable {
+
+/**
+ * @dev Contract that encapsulates all the group settlement logic
+*/
+contract GroupBill is Ownable, MsgSigner {
     enum GroupBillState {
         OPEN,
         PRUNING_IN_PROGRESS,
@@ -28,6 +35,7 @@ contract GroupBill is Ownable {
         JOINED
     }
 
+    GroupBillAccessControl private immutable i_ac;
     IPermit2 public immutable i_permit2;
     IERC20 public immutable i_coreToken; // participants can only donate in this token (gets set once)
     address public immutable i_consumerEOA;
@@ -62,12 +70,15 @@ contract GroupBill is Ownable {
         IERC20 coreToken,
         address[] memory initialParticipants,
         address consumerEOA,
+        address gbAccount,
+        GroupBillAccessControl ac,
         IPermit2 permit2
-    ) Ownable(initialOwner) {
+    ) Ownable(initialOwner) MsgSigner(gbAccount) {
         s_state = GroupBillState.OPEN;
         s_expensesCount = 0;
         i_coreToken = IERC20(coreToken);
         i_consumerEOA = consumerEOA;
+        i_ac = GroupBillAccessControl(ac);
         addParticipant(initialOwner, JoinState.JOINED);
         i_permit2 = permit2;
 
@@ -75,7 +86,7 @@ contract GroupBill is Ownable {
     }
 
     function getParticipantState() public view returns (JoinState) {
-        return s_isParticipant[msg.sender];
+        return s_isParticipant[s_msgSigner];
     }
 
     function getParticipants() public view returns (address[] memory) {
@@ -116,45 +127,48 @@ contract GroupBill is Ownable {
         s_participants.push(participant);
     }
 
-    function addParticipants(address[] memory participants) public isParticipant {
+    function addParticipants(address[] memory participants) public onlyTrustedAccount {
         addPendingParticipants(participants);
     }
 
-    function join() public returns (JoinState joinState) {
-        if (s_isParticipant[msg.sender] != JoinState.PENDING) {
-            revert GroupBill__NotAllowedToJoin(msg.sender);
+    function join() onlyTrustedAccount public returns (JoinState joinState) {
+        if (s_isParticipant[s_msgSigner] != JoinState.PENDING) {
+            revert GroupBill__NotAllowedToJoin(s_msgSigner);
         }
-        s_isParticipant[msg.sender] = JoinState.JOINED;
-        joinState = s_isParticipant[msg.sender];
+        s_isParticipant[s_msgSigner] = JoinState.JOINED;
+        joinState = s_isParticipant[s_msgSigner];
+
+        /// @dev once role of participant is granted, it never gets revoked (POC feature)
+        i_ac.grantGBParticipantRole(s_msgSigner, address(this));
     }
 
     /// @dev validation of groupExpenseItems is happening on the client
     function submitExpense(
         BorrowerAmount[] memory borrowerAmountItems,
         string memory expenseName
-    ) public isParticipant {
-        s_lenderNamedExpenses[msg.sender][expenseName] = borrowerAmountItems;
+    ) public isParticipant onlyTrustedAccount {
+        s_lenderNamedExpenses[s_msgSigner][expenseName] = borrowerAmountItems;
 
-        for (uint nameId = 0; nameId < s_lenderExpenseNames[msg.sender].length; nameId++) {
-            bytes32 expenseNameHash = keccak256(abi.encode(s_lenderExpenseNames[msg.sender][nameId]));
+        for (uint nameId = 0; nameId < s_lenderExpenseNames[s_msgSigner].length; nameId++) {
+            bytes32 expenseNameHash = keccak256(abi.encode(s_lenderExpenseNames[s_msgSigner][nameId]));
             bytes32 parameterExpensesHash = keccak256(abi.encode(expenseName));
 
             if (expenseNameHash == parameterExpensesHash) {
                 return;
             }
         }
-        s_lenderExpenseNames[msg.sender].push(expenseName);
+        s_lenderExpenseNames[s_msgSigner].push(expenseName);
     }
 
-    function deleteGroupExpense(string memory expenseName) public isParticipant {
-        delete s_lenderNamedExpenses[msg.sender][expenseName];
+    function deleteGroupExpense(string memory expenseName) public isParticipant onlyTrustedAccount {
+        delete s_lenderNamedExpenses[s_msgSigner][expenseName];
 
-        for (uint nameId = 0; nameId < s_lenderExpenseNames[msg.sender].length; nameId++) {
-            bytes32 expenseNameHash = keccak256(abi.encode(s_lenderExpenseNames[msg.sender][nameId]));
+        for (uint nameId = 0; nameId < s_lenderExpenseNames[s_msgSigner].length; nameId++) {
+            bytes32 expenseNameHash = keccak256(abi.encode(s_lenderExpenseNames[s_msgSigner][nameId]));
             bytes32 parameterGroupExpensesHash = keccak256(abi.encode(expenseName));
 
             if (expenseNameHash == parameterGroupExpensesHash) {
-                delete s_lenderExpenseNames[msg.sender][nameId];
+                delete s_lenderExpenseNames[s_msgSigner][nameId];
                 break;
             }
         }
@@ -185,10 +199,10 @@ contract GroupBill is Ownable {
         s_state = GroupBillState.READY_TO_SETTLE;
     }
 
-    function requestExpensePruning() public isParticipant {
+    function requestExpensePruning() public isParticipant onlyTrustedAccount {
         bytes32 newExpensesHash = sha256(abi.encode(getFlatExpenses()));
         if (!(s_state == GroupBillState.OPEN || s_state == GroupBillState.READY_TO_SETTLE)) {
-            revert GroupBill__StateActionForbidden(s_state, msg.sender);
+            revert GroupBill__StateActionForbidden(s_state, s_msgSigner);
         }
 
         s_expensesHash = newExpensesHash;
@@ -213,12 +227,12 @@ contract GroupBill is Ownable {
 
     function getPostPruningSenderTotalLoan() public view isParticipant returns (uint256) {
         if (s_state != GroupBillState.READY_TO_SETTLE) {
-            revert GroupBill__StateActionForbidden(s_state, msg.sender);
+            revert GroupBill__StateActionForbidden(s_state, s_msgSigner);
         }
-        return s_postPruningBorrowerExpenses[msg.sender].totalAmount;
+        return s_postPruningBorrowerExpenses[s_msgSigner].totalAmount;
     }
 
-    /// @dev hardcoded for now, i_coreToken should be dai/usdt-like
+    /// @dev hardcoded for now, i_coreToken should be dai/usdc-like
     function getTxFee() public pure returns (uint256) {
         return 5 * 1e17;
     }
@@ -227,14 +241,14 @@ contract GroupBill is Ownable {
         return i_coreToken.balanceOf(address(this));
     }
 
-    function setName(string memory gbName) public isParticipant {
+    function setName(string memory gbName) public isParticipant onlyTrustedAccount {
         s_name = gbName;
     }
 
     function permit(
         IAllowanceTransfer.PermitSingle memory singlePermit,
         bytes calldata signature
-    ) public isParticipant {
+    ) public isParticipant onlyTrustedAccount {
         if (address(singlePermit.details.token) != address(i_coreToken)) {
             revert GroupBill__InvalidToken(singlePermit.details.token);
         }
@@ -242,21 +256,21 @@ contract GroupBill is Ownable {
             revert GroupBill__InvalidToken(address(0));
         }
 
-        i_permit2.permit(msg.sender, singlePermit, signature);
+        i_permit2.permit(s_msgSigner, singlePermit, signature);
 
         console.log("Group Bill token balance");
         console.logUint(i_coreToken.balanceOf(address(this)));
     }
 
-    function settle() public isParticipant returns (bool settlementCompleted) {
+    function settle() public isParticipant onlyTrustedAccount returns (bool settlementCompleted) {
         if (s_state != GroupBillState.READY_TO_SETTLE) {
-            revert GroupBill__StateActionForbidden(s_state, msg.sender);
+            revert GroupBill__StateActionForbidden(s_state, s_msgSigner);
         }
         s_state = GroupBillState.SETTLEMENT_IN_PROGRESS;
         settlementCompleted = settleCollectively();
     }
 
-    function settleCollectively() public isParticipant returns (bool settlementCompleted) {
+    function settleCollectively() public isParticipant onlyTrustedAccount returns (bool settlementCompleted) {
         /// @dev ensure that every participant has allocated sufficient amount
         for (uint participatnId = 0; participatnId < s_participants.length; participatnId++) {
             address borrower = s_participants[participatnId];
@@ -280,6 +294,12 @@ contract GroupBill is Ownable {
         for (uint borrowerId = 0; borrowerId < s_postPruningBorrowers.length; borrowerId++) {
             address borrower = s_postPruningBorrowers[borrowerId];
             PostPruningTotalAmount memory borrowerExpense = s_postPruningBorrowerExpenses[borrower];
+            console.log("test address this log");
+            console.logAddress(address(this));
+
+            console.log("borrower address");
+            console.log(borrower);
+            console.logAddress(borrower);
 
             try
                 i_permit2.transferFrom(
@@ -294,6 +314,8 @@ contract GroupBill is Ownable {
                 settlementCompleted = false;
                 revert GroupBill__TransferFromFailed(borrower, reason);
             }
+            
+            console.log("after transferFrom method to -group bill address");
 
             for (
                 uint lenderId = 0;
@@ -307,6 +329,8 @@ contract GroupBill is Ownable {
         }
         settlementCompleted = true;
         s_state = GroupBillState.SETTLED;
+
+        // TODO: revoke old PARTICIPANT permissions ??
     }
 
     function addPendingParticipants(address[] memory participants) private {
@@ -354,22 +378,22 @@ contract GroupBill is Ownable {
     }
 
     modifier isParticipant() {
-        if (s_isParticipant[msg.sender] != JoinState.JOINED) {
-            revert GroupBill__NotParticipant(msg.sender);
+        if (s_isParticipant[s_msgSigner] != JoinState.JOINED) {
+            revert GroupBill__NotParticipant(s_msgSigner);
         }
         _;
     }
 
-    modifier isExpenseLender(uint256 expenseIndex) {
-        if (s_expenses[expenseIndex].lender != msg.sender) {
-            revert GroupBill__NotExpenseOwner(msg.sender);
-        }
-        _;
-    }
+    // modifier isExpenseLender(uint256 expenseIndex) {
+    //     if (s_expenses[expenseIndex].lender != msg.sender) {
+    //         revert GroupBill__NotExpenseOwner(msg.sender);
+    //     }
+    //     _;
+    // }
 
     modifier onlyConsumerEOA() {
-        if (msg.sender != i_consumerEOA) {
-            revert GroupBill__AddressIsNotTrusted(msg.sender);
+        if (s_msgSigner != i_consumerEOA) {
+            revert GroupBill__AddressIsNotTrusted(s_msgSigner);
         }
         _;
     }
